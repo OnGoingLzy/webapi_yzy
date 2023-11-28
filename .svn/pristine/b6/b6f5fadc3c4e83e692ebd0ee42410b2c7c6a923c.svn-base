@@ -1,0 +1,34 @@
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Text;
+using System.Threading.Tasks;
+using Newtonsoft.Json;
+
+namespace webapi_yzy.common {
+    public class ApiRequestUtils {
+        public static HttpWebResponse SendPostRequest(string url, string pwd, Dictionary<string, object> paramsDict) {
+            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+            var jsonString = JsonConvert.SerializeObject(paramsDict);
+            var sign = Md5Utils.Encode(pwd + jsonString);
+            request.Method = "POST";
+            request.ContentType = "application/json";
+
+            //添加请求头
+            request.Headers.Add("sign", sign);
+
+            //添加请求体
+            byte[] byteArray = Encoding.UTF8.GetBytes(jsonString);
+            request.ContentLength = byteArray.Length;
+            //请求超时时间为传入时间确定
+            request.Timeout = 8000;
+            Stream dataStream = request.GetRequestStream();
+            dataStream.Write(byteArray, 0, byteArray.Length);
+            dataStream.Close();
+
+            return (HttpWebResponse)request.GetResponse();
+        }
+    }
+}

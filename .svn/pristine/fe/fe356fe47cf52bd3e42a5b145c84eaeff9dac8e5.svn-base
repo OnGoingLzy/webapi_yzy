@@ -1,0 +1,598 @@
+﻿using Microsoft.AspNetCore.Mvc;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using SKIT.FlurlHttpClient.Wechat.TenpayV3.Models;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using webapi_yzy.common;
+using webapi_yzy.Model;
+using webapi_yzy.Service;
+
+namespace webapi_yzy.Controllers
+{
+    [Route("api/[controller]/[action]")]
+    [ApiController]
+    public class TradeController : Controller
+    {
+        public ResultMessage getTokenResult(string body, string appid, string method)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回值
+            ResultMessage resultmsg = new ResultMessage();
+            string timestamp = "";
+            string nonce = "";
+            string sign = "";
+            string inputstr = "";
+            try
+            {
+                //获取头部信息
+                timestamp = HttpContext.Request.Headers["X-Ca-Timestamp"];//时间戳
+                nonce = HttpContext.Request.Headers["X-Ca-Nonce"];//随机数
+                sign = HttpContext.Request.Headers["X-Ca-Signature"]; //签名
+
+                //身份验证
+                resultmsg = Token.getTokenResult(appid, method, timestamp, nonce, sign, body);
+
+                if (resultmsg.code != 99)//验证失败记录日志
+                {
+                    inputstr = "appid:" + appid + "&method:" + method + "&timestamp:" + timestamp + "&nonce:" + nonce + "&sign:" + sign;
+
+                    DbOperator.saveWebapiOutputLog(appid, method, "身份验证", inputstr, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                }
+                return resultmsg;
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { code = -1, msg = "exception:" + ex.Message };
+                //执行失败记录日志
+                DbOperator.saveWebapiOutputLog(appid, method, "身份验证", inputstr, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                return resultmsg;
+
+            }
+        }
+
+        public ActionResult addGoodsToShoppingCart(object obj)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try
+            {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //查询商品内容
+                // "Body" 字段解析为一个 JObject 对象
+                JObject bodyObject = JObject.Parse(trueBody);
+
+                string openid = bodyObject["openid"] == null ? "" : bodyObject["openid"].ToString(); //
+                string shopId = bodyObject["shopId"] == null ? "" : bodyObject["shopId"].ToString(); //
+                string goodsId = bodyObject["goodsId"] == null ? "" : bodyObject["goodsId"].ToString(); //
+                int num = (int)bodyObject["num"] == 0 ? 1 : (int)bodyObject["num"]; //
+
+                string dbRes = DbOperator.addGoodsToShoppingCart(openid,shopId,goodsId,num);
+                object dataObj = JSON.Decode(dbRes);
+                resultmsg.data = dataObj;
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "添加商品至购物车", body, (resultmsg.data ?? "").ToString(), resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = -99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, (resultmsg.data ?? "").ToString(), resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+
+        //提交退款申请
+        public ActionResult submitRefundApplication(object obj)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try
+            {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //查询商品内容
+                // "Body" 字段解析为一个 JObject 对象
+                JObject bodyObject = JObject.Parse(trueBody);
+                WechatPayService payService = new WechatPayService();
+               
+                string openid = bodyObject["openid"] == null ? "" : bodyObject["openid"].ToString();
+                string main_order_id = bodyObject["main_order_id"] == null ? "" : bodyObject["main_order_id"].ToString(); //要退款的主订单号
+                string businessUnitId = bodyObject["businessUnitId"] == null ? "" : bodyObject["businessUnitId"].ToString();
+                JObject wxPayOrderObj = JObject.Parse(DbOperator.getWxPayOrder(main_order_id,openid));
+                refundObj refundObj = new refundObj();
+                if ((int)wxPayOrderObj["flag"] == 99)
+                {
+                    refundObj.refundAmount = (decimal)wxPayOrderObj["data"]["totalPrice"];
+                    refundObj.out_order_id = (string)wxPayOrderObj["data"]["out_order_id"];
+                    refundObj.wxpay_order_id = (string)wxPayOrderObj["data"]["wxpay_order_id"];
+                    //string new_main_order_id = 
+                }
+                
+                
+                //string submitRefundApplicationResult = payService.submitRefundApplication(refundObj, businessUnitId, new_main_order_id, openid);
+
+                //*********************************************************************************************************************
+                //resultmsg.data = JSON.Decode(submitRefundApplicationResult);
+
+                return new JsonResult(resultmsg);
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = 99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, (resultmsg.data ?? "").ToString(), resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+
+
+        //支付
+        public async Task<ActionResult> wechatPay(object obj) {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99) {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //查询商品内容
+                // "Body" 字段解析为一个 JObject 对象
+                JObject bodyObject = JObject.Parse(trueBody);
+                string shopId = bodyObject["shopId"] == null ? "" : bodyObject["shopId"].ToString();
+                string openid = bodyObject["openid"] == null ? "" : bodyObject["openid"].ToString();
+                string locationId = bodyObject["locationId"] == null ? "" : bodyObject["locationId"].ToString();
+                string memo = bodyObject["memo"] == null ? "" : bodyObject["memo"].ToString();
+                string shippingFee = bodyObject["shippingFee"] == null ? "" : bodyObject["shippingFee"].ToString();
+                List<purchaseGoods> goodsList = JsonConvert.DeserializeObject<List<purchaseGoods>>(JsonConvert.SerializeObject(bodyObject["goodsList"]));
+                string main_order_id = String.Empty;
+                string businessUnitId = String.Empty;
+
+                string goodsListStr = JsonConvert.SerializeObject(goodsList);
+
+                //先写入一份支付记录到订单表中
+                string orderJson = DbOperator.saveOrder(shopId, openid, goodsListStr, locationId, memo, shippingFee);
+                JObject orderJsonObject = (JObject)JsonConvert.DeserializeObject(orderJson);
+                if ((string)orderJsonObject["flag"] == "-99")
+                {
+                    resultmsg.code = -99;
+                    resultmsg.msg = "保存订单失败";
+                    resultmsg.data = JSON.Decode(orderJson);
+                    //日志
+                    DbOperator.saveWebapiOutputLog(appid, method, "保存订单失败", body, (resultmsg.data ?? "").ToString(), resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+                main_order_id = (string)orderJsonObject["data"][0]["main_order_id"];
+                businessUnitId = (string)orderJsonObject["data"][0]["businessUnitId"];
+                openid = (string)orderJsonObject["data"][0]["openid"];
+                decimal totalPrice = Math.Round((decimal)orderJsonObject["data"][0]["totalPrice"], 2);
+
+                WechatPayService payService = new WechatPayService();
+                //创建预付单
+                //*********************************************************************************************************************
+                string prePayOrderGenerateResult = await payService.JSAPIpreOrderAsync(main_order_id, businessUnitId, totalPrice, openid);
+
+
+                if (!prePayOrderGenerateResult.Contains("error")) {
+                    /*创建微信支付订单及购物订单*/
+                    resultmsg.data = JSON.Decode(prePayOrderGenerateResult);
+                } else {
+                    resultmsg.code = -99;
+                    resultmsg.msg = "生成预支付订单失败!";
+                    resultmsg.data = JSON.Decode(prePayOrderGenerateResult);
+                    //日志
+                    DbOperator.saveWebapiOutputLog(appid, method, "生成预支付订单失败", body, (resultmsg.data ?? "").ToString(), resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                }
+                //*********************************************************************************************************************
+
+
+                return new JsonResult(resultmsg);
+            } catch (Exception ex) {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = -99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, (resultmsg.data ?? "").ToString(), resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+    
+        //获取用户的订单信息
+        public ActionResult getOrderList(object obj)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try
+            {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //查询商品内容
+                // "Body" 字段解析为一个 JObject 对象
+                JObject bodyObject = JObject.Parse(trueBody);
+
+                string openid = bodyObject["openid"] == null ? "" : bodyObject["openid"].ToString(); //
+                
+
+                string dbRes = DbOperator.getOrderList(openid);
+                object dataObj = JSON.Decode(dbRes);
+                resultmsg.data = dataObj;
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "获取用户的所有订单", body, dbRes, resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = -99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, (resultmsg.data ?? "").ToString(), resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+
+        public ActionResult getOrderNumByStatus(object obj)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try
+            {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //查询商品内容
+                // "Body" 字段解析为一个 JObject 对象
+                JObject bodyObject = JObject.Parse(trueBody);
+
+                string openid = bodyObject["openid"] == null ? "" : bodyObject["openid"].ToString(); //
+                string status = bodyObject["status"] == null ? "" : bodyObject["status"].ToString(); //
+
+
+                string dbRes = DbOperator.getOrderNumByStatus(openid,status);
+                object dataObj = JSON.Decode(dbRes);
+                resultmsg.data = dataObj;
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "获取用户订单"+status+"状态的订单数", body, dbRes, resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = -99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, (resultmsg.data ?? "").ToString(), resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+
+        public async Task<ActionResult> queryPayOrder(object obj)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try
+            {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //查询商品内容
+                // "Body" 字段解析为一个 JObject 对象
+                JObject bodyObject = JObject.Parse(trueBody);
+                WechatPayService payService = new WechatPayService();
+                string noPayOrderList = DbOperator.getOrderList("noPay");
+                JObject noPayOrderListObj = JObject.Parse(noPayOrderList);
+                if ((int)noPayOrderListObj["flag"] == 99 && noPayOrderListObj["data"] != null)
+                {
+                    JArray dataArr = (JArray)noPayOrderListObj["data"];
+                    foreach (JObject item in dataArr)
+                    {
+                        string main_order_id = (string)item["main_order_id"];
+                        string out_order_id = (string)item["out_order_id"];
+                        JObject getBusinessUnitIdResult = JObject.Parse(DbOperator.getOrderBusinessId(main_order_id));
+                        if ((int)getBusinessUnitIdResult["flag"] != 99)
+                        {
+                            continue;
+                        }
+                        string businessUnitId = (string)getBusinessUnitIdResult["businessUnitId"];
+                        GetPayTransactionByOutTradeNumberResponse wxPayOrderInfo = await payService.GetPayTransactionByOutTradeNumber(out_order_id, businessUnitId);
+                        string dbRes = payService.addOrUpdateWxPayOrder(wxPayOrderInfo, main_order_id);
+                        
+                    }
+                }
+                DbOperator.saveWebapiOutputLog(appid, method, "批量查询用户微信支付状态", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                resultmsg.data = "已执行";
+
+                return new JsonResult(resultmsg);
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = 99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, (resultmsg.data ?? "").ToString(), resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+
+        /// 2023-08-22 后禹谦 退款业务接口
+        /// <summary>
+        /// 该接口开放给智慧药房接收退款消息，并且完成完整退款的业务逻辑和操作
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <returns></returns>
+        //提交退款申请
+        public async Task<ActionResult> refundApplication(object obj) {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string trueBody = String.Empty;
+            string body = "";
+            string dbRes = String.Empty;
+            try {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+
+                resultmsg = getTokenResult(body, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+
+                JArray jsonArray = JArray.Parse(body ?? "[{\"returnedFlag\": \"-99\", \"returnedMsg\": \"异常情况\", \"main_order_id\": \"202300000000\"}]");
+                JObject jsonObject = (JObject)jsonArray[0];
+
+                string returnedFlag = jsonObject["returnedFlag"] == null ? "" : jsonObject["returnedFlag"].ToString();
+                string returnedMsg = jsonObject["returnedMsg"] == null ? "" : jsonObject["returnedMsg"].ToString();
+                string mainOrderId = jsonObject["main_order_id"] == null ? "" : jsonObject["main_order_id"].ToString();
+
+                if (returnedFlag != "99")
+                {
+                    resultmsg.code = int.Parse(returnedFlag);
+                    resultmsg.msg = returnedMsg;
+                    DbOperator.saveWebapiOutputLog(appid, method, "提交退款申请", body, "获取智慧药房发起的退货订单", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //获取智慧药房发起的退货订单，状态位为99，代表该笔订单可以进行继续退款
+                dbRes = DbOperator.getRefundInfo(mainOrderId);
+                jsonObject = JObject.Parse(dbRes);
+                jsonArray = (JArray)jsonObject["data"];
+                JObject dataObject = (JObject)jsonArray[0];
+                
+                //身份验证成功，开始处理数据#################################
+                //查询商品内容
+                
+                WechatPayService payService = new WechatPayService();
+                string openid = dataObject["openid"] == null ? "" : dataObject["openid"].ToString();
+                string new_main_order_id = dataObject["new_main_order_id"] == null ? "" : dataObject["new_main_order_id"].ToString();
+                string out_order_id = dataObject["out_order_id"] == null ? "" : dataObject["out_order_id"].ToString();
+                string wxpay_order_id = dataObject["wxpay_order_id"] == null ? "" : dataObject["wxpay_order_id"].ToString();
+                string businessUnitId = dataObject["businessUnitId"] == null ? "" : dataObject["businessUnitId"].ToString();
+                decimal totalPrice = dataObject["totalPrice"] == null ? 0 : decimal.Parse(dataObject["totalPrice"].ToString());
+
+                //*********************************************************************************************************************
+                //提交退货申请只需要这些参数即可， new_main_order_id参数需上级方法给出(订单退单生成好之后,再将退单的新主订单号传给该方法)
+                refundObj refundObj = new refundObj();
+                refundObj.refundAmount = totalPrice;
+                refundObj.out_order_id = out_order_id;
+                refundObj.wxpay_order_id = wxpay_order_id;
+                string submitRefundApplicationResult = payService.submitRefundApplication(refundObj, businessUnitId, new_main_order_id, openid);
+
+                //*********************************************************************************************************************
+
+                //2023-08-23 下面是处理正式提起退款的环节
+                //对应testRequestRefund方法
+                jsonObject = JObject.Parse(submitRefundApplicationResult);
+                int flag = (int)jsonObject["flag"];
+                string sm = (string)jsonObject["sm"];
+                
+                if (flag != 99)
+                {
+                    dbRes = DbOperator.saveRefundOperateRecord(mainOrderId, "", flag, sm);
+                    resultmsg.code = flag;
+                    resultmsg.msg = sm;
+                    DbOperator.saveWebapiOutputLog(appid, method, "发起退款申请", submitRefundApplicationResult, "发起退款申请时出现失败记录", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //如果flag为99的话，证明取到的是正确的退款信息，此时就可以发起退款操作
+                jsonArray = (JArray)jsonObject["data"];
+                dataObject = (JObject)jsonArray[0];
+                string commitOutOrderId = dataObject["out_order_id"] == null ? "" : dataObject["out_order_id"].ToString();
+                string commitOriginOutOrderId = dataObject["origin_out_order_id"] == null ? "" : dataObject["origin_out_order_id"].ToString();
+
+                refundObj commitRefundObj = new refundObj();
+                commitRefundObj.out_order_id = commitOriginOutOrderId;
+                commitRefundObj.refundAmount = totalPrice;                      //要退款的金额
+                commitRefundObj.origin_totalPrice = totalPrice;                 //原订单总金额
+                string requestRefundResult = await payService.requestRefund(commitRefundObj, commitOutOrderId, openid, businessUnitId);
+
+                jsonObject = JObject.Parse(requestRefundResult);
+                flag = (int)jsonObject["flag"];
+                sm = (string)jsonObject["sm"];
+
+                /* 查询最终退款结果的方法就不在此处调用了
+                   而是开发一个统一的轮询支付结果和退款结果的方法或Winform前台程序
+                string testRequestQueryRefundResult = await payService.requestQueryRefund(commitOutOrderId, businessUnitId);
+                */
+                
+                dbRes = DbOperator.saveRefundOperateRecord(mainOrderId, "", flag, sm);
+
+                resultmsg.code = flag;
+                resultmsg.msg = sm;
+                DbOperator.saveWebapiOutputLog(appid, method, "发起退款申请", submitRefundApplicationResult, "发起退款申请成功", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                
+                return new JsonResult(resultmsg);
+            } catch (Exception ex) {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = 99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, (resultmsg.data ?? "").ToString(), resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+
+    }
+}
+
+
+
+
+

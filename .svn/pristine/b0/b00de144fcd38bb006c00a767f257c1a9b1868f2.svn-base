@@ -1,0 +1,438 @@
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Data;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Text;
+using System.Threading.Tasks;
+using webapi_yzy.Model;
+
+namespace webapi_yzy
+{
+    public class DbOperator
+    {
+        /// <summary>
+        /// 获取Appsecret
+        /// </summary>
+        /// <param name="appid"></param>
+        /// <returns></returns>
+        public static string getAppsecret(string appid)
+        {
+            string sqlStr = "SELECT appsecret FROM t_webapi_appid WITH(NOLOCK) WHERE appid = '" + appid + "'";
+            DataTable dt = BaseSql.getInstance().getDataTable(sqlStr);
+            if (dt == null || dt.Rows.Count == 0)
+            {
+                return "";
+            }
+            else
+            {
+                return dt.Rows[0]["appsecret"].ToString();
+            }
+        }
+        /// <summary>
+        /// 保存外部调用的日志
+        /// </summary>
+        /// <param name="appid"></param>
+        /// <param name="method">方法名</param>
+        /// <param name="czlx">操作类型</param>
+        /// <param name="inputData">输入数据</param>
+        /// <param name="outputData">输出数据</param>
+        /// <param name="flag">返回值</param>
+        /// <param name="flag_sm">返回值说明</param>
+        /// <param name="kssj">操作的开始时间</param>
+        /// <param name="jssj">操作的结束时间</param>
+        public static void saveWebapiOutputLog(string appid, string method, string operateType, string inputData, string outputData,
+            int resultCode, string resultMsg, string beginTime, string endTime)
+        {
+            try
+            {
+                ArrayList arrayList = new ArrayList();
+                arrayList.Add(new UProcPara("@appid", SqlDbType.VarChar, 50, appid));
+                arrayList.Add(new UProcPara("@method", SqlDbType.VarChar, 50, method));
+                arrayList.Add(new UProcPara("@operateType", SqlDbType.NVarChar, 30, operateType));
+                arrayList.Add(new UProcPara("@inputdata", SqlDbType.VarChar, inputData.Length * 2, inputData));
+                arrayList.Add(new UProcPara("@outputdata", SqlDbType.VarChar, outputData.Length * 2, outputData));
+                arrayList.Add(new UProcPara("@resultCode", SqlDbType.Int, 0, resultCode));
+                arrayList.Add(new UProcPara("@resultMsg", SqlDbType.NVarChar, 200, resultMsg));
+                arrayList.Add(new UProcPara("@beginTime", SqlDbType.VarChar, 30, beginTime));
+                arrayList.Add(new UProcPara("@endTime", SqlDbType.VarChar, 30, endTime));
+                DataTable dt = BaseSql.getInstance().procedure("p_webapi_output_insert_log", arrayList);
+            }
+            catch (Exception ex)
+            {
+
+            }
+        }
+
+
+        /// <summary>
+        /// 调用微信接口获取openid
+        /// </summary>
+        /// <param name="appid"></param>
+        /// <param name="secret"></param>
+        /// <param name="sj_code"></param>
+        public static ResultMessage GetOpenid(string appid, string secret, string js_code)
+        {
+            appid = "wxe7c826a1a5e00055";
+            string res = "";
+            ResultMessage resultmsg = new ResultMessage();
+            //调用微信小程序原本的接口，获取token
+            String getTokenUrl = String.Format("https://api.weixin.qq.com/sns/jscode2session?appid={0}&secret={1}&js_code={2}&grant_type={3}", appid, "425edf0bcd1ef5d7c2a32d55832f643f", js_code, "authorization_code");//url传递参数
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
+            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(getTokenUrl);
+            request.ContentType = "application/x-www-form-urlencoded";
+            request.Method = "GET";
+            using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+            {
+                using (Stream stream = response.GetResponseStream())
+                {
+                    using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
+                    {
+                        String str = reader.ReadToEnd();
+
+                        // Console.WriteLine("access_token:" + tokenObj["data"]["access_token"].ToString());
+                        object obj = JSON.Decode(str);
+                        resultmsg.data = obj;
+
+                        DbOperator.saveWebapiOutputLog(appid, "GetOpenid", "获取openid", "", str, 99, "", beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    }
+                }
+            }
+            resultmsg.code = 99;
+            
+            resultmsg.msg = "获取openid结果";
+            return resultmsg;
+        }
+
+        public static string searchGoods(string appid, List<Drugs> drugsList, string searchContent, string sortRule, string filterRule, int pageIndex = 1, int pageSize = 20)
+        {
+            string res = "";
+            try
+            {
+                ArrayList arr = new ArrayList();
+                arr.Add(new UProcPara("@appid", SqlDbType.VarChar, 20, appid));
+                arr.Add(new UProcPara("@searchContent", SqlDbType.VarChar, 100, searchContent));
+                arr.Add(new UProcPara("@pageIndex", SqlDbType.Int, 0, pageIndex));
+                arr.Add(new UProcPara("@pageSize", SqlDbType.Int, 0, pageSize));
+                //list对象转换成json
+                string goodsIdListJson = JsonConvert.SerializeObject(drugsList);
+                arr.Add(new UProcPara("@goodsIdListJson", SqlDbType.VarChar, goodsIdListJson.Length * 2, goodsIdListJson));
+
+
+
+                DataTable dt = BaseSql.getInstance().procedure("p_goods_queryGoods", arr);
+                if (dt != null && dt.Rows.Count > 0)
+                {
+                    for (int i = 0; i < dt.Rows.Count; i++)
+                    {
+                        res += dt.Rows[i][0].ToString();
+                    }
+                    if (res.Length > 0)
+                    {
+                        res = res.Substring(1, res.Length - 1);
+                        res = res.Substring(0, res.Length - 1);
+                    }
+                }
+                else
+                {
+                    res = "{\"sm\":\"没有返回数据\",\"result\":\"-99\"}";
+                }
+            }
+            catch (Exception ex)
+            {
+                res = "{\"sm\":\"" + "异常:" + ex.Message + "\",\"result\":\"-99\"}";
+            }
+
+            return res;
+        }
+
+        public static string searchShops(string appid, string goods_json, float longitude, float latitude)
+        {
+            string res = "";
+            try
+            {
+                ArrayList arr = new ArrayList();
+                arr.Add(new UProcPara("@appid", SqlDbType.VarChar, 20, appid));
+                arr.Add(new UProcPara("@goods_json", SqlDbType.VarChar, goods_json.Length * 2, goods_json));
+                arr.Add(new UProcPara("@longitude", SqlDbType.Decimal, 16, longitude));
+                arr.Add(new UProcPara("@latitude", SqlDbType.Decimal, 16, latitude));
+
+                DataTable dt = BaseSql.getInstance().procedure("p_shop_queryShop", arr);
+                if (dt != null && dt.Rows.Count > 0)
+                {
+                    for (int i = 0; i < dt.Rows.Count; i++)
+                    {
+                        res += dt.Rows[i][0].ToString();
+                    }
+                    if (res.Length > 0)
+                    {
+                        res = res.Substring(1, res.Length - 1);
+                        res = res.Substring(0, res.Length - 1);
+                    }
+                }
+                else
+                {
+                    res = "{\"sm\":\"没有返回数据\",\"result\":\"-99\"}";
+                }
+            }
+            catch (Exception ex)
+            {
+                res = "{\"sm\":\"" + "异常:" + ex.Message + "\",\"result\":\"-99\"}";
+            }
+
+            return res;
+        }
+
+        public static string GetAccessToken(string appid, string secret)
+        {
+            appid = "wxe7c826a1a5e00055";
+            string res = "";
+            //调用微信小程序原本的接口，获取token
+            String getTokenUrl = String.Format("https://api.weixin.qq.com/cgi-bin/token?grant_type={0}&appid={1}&secret={2}", "client_credential", appid, "425edf0bcd1ef5d7c2a32d55832f643f");//url传递参数
+            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(getTokenUrl);
+            request.ContentType = "application/x-www-form-urlencoded";
+            request.Method = "GET";
+            using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+            {
+                using (Stream stream = response.GetResponseStream())
+                {
+                    using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
+                    {
+                        String strToken = reader.ReadToEnd();
+                        JObject tokenObj = JsonConvert.DeserializeObject<JObject>(strToken);
+                        // Console.WriteLine("access_token:" + tokenObj["data"]["access_token"].ToString());
+                        
+                        res = JsonConvert.SerializeObject(tokenObj);
+                    }
+                }
+            }
+
+
+            return res;
+        }
+
+        public static string CheckUserExist(string openid)
+        {
+            string res = "";
+            try
+            {
+                ArrayList arr = new ArrayList();
+                arr.Add(new UProcPara("@openid", SqlDbType.VarChar, 50, openid));
+
+                DataTable dt = BaseSql.getInstance().procedure("p_user_checkUserExist", arr);
+                if (dt != null && dt.Rows.Count > 0)
+                {
+                    for (int i = 0; i < dt.Rows.Count; i++)
+                    {
+                        res += dt.Rows[i][0].ToString();
+                    }
+                    if (res.Length > 0)
+                    {
+                        res = res.Substring(1, res.Length - 1);
+                        res = res.Substring(0, res.Length - 1);
+                    }
+                }
+                else
+                {
+                    res = "{\"sm\":\"没有返回数据\",\"result\":\"-99\"}";
+                }
+            }
+            catch (Exception ex)
+            {
+                res = "{\"sm\":\"" + "异常:" + ex.Message + "\",\"result\":\"-99\"}";
+            }
+
+            return res;
+        }
+
+        public static string bindUserPhone(string openid,string phone)
+        {
+            string res = "";
+            try
+            {
+                ArrayList arr = new ArrayList();
+                arr.Add(new UProcPara("@openid", SqlDbType.VarChar, 50, openid));
+                arr.Add(new UProcPara("@phone", SqlDbType.VarChar, 50, phone));
+
+                DataTable dt = BaseSql.getInstance().procedure("p_user_bindUserPhone", arr);
+                if (dt != null && dt.Rows.Count > 0)
+                {
+                    for (int i = 0; i < dt.Rows.Count; i++)
+                    {
+                        res += dt.Rows[i][0].ToString();
+                    }
+                    if (res.Length > 0)
+                    {
+                        res = res.Substring(1, res.Length - 1);
+                        res = res.Substring(0, res.Length - 1);
+                    }
+                }
+                else
+                {
+                    res = "{\"sm\":\"没有返回数据\",\"result\":\"-99\"}";
+                }
+            }
+            catch (Exception ex)
+            {
+                res = "{\"sm\":\"" + "异常:" + ex.Message + "\",\"result\":\"-99\"}";
+            }
+
+            return res;
+        }
+
+        public static string GetPhoneNumber(string code, string token)
+        {
+            string res = "";
+
+            string body = "{\"code\":\"" + code + "\"}";
+
+
+            String url = String.Format("https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token={0}", token);//url传递参数
+            HttpWebRequest req = (HttpWebRequest)HttpWebRequest.Create(url);
+            Encoding encoding = Encoding.UTF8;
+            byte[] byteArray = Encoding.UTF8.GetBytes(body);
+            string responseData = String.Empty;
+            req.Method = "POST";
+            req.ContentType = "application/json";
+            req.ContentLength = byteArray.Length;
+
+            using (Stream reqStream = req.GetRequestStream())
+            {
+                reqStream.Write(byteArray, 0, byteArray.Length);
+            }
+
+            using (HttpWebResponse response = (HttpWebResponse)req.GetResponse())
+            {
+
+                using (StreamReader reader = new StreamReader(response.GetResponseStream(), encoding))
+                {
+                    responseData = reader.ReadToEnd();
+                    JObject phoneObj = JsonConvert.DeserializeObject<JObject>(responseData);
+                    res = JsonConvert.SerializeObject(phoneObj);
+                }
+             
+            }
+            res = "{\"sm\":\"获取用户手机号成功\",\"result\":\"99\",\"data\":" + res + "}";
+
+            return res;
+        }
+
+        public static string getGoodsUser(string openid, string phone)
+        {
+            string res = "";
+            try
+            {
+                ArrayList arr = new ArrayList();
+                arr.Add(new UProcPara("@openid", SqlDbType.VarChar, 50, openid));
+                arr.Add(new UProcPara("@phone", SqlDbType.VarChar, 50, phone));
+
+                DataTable dt = BaseSql.getInstance().procedure("p_user_getGoodsUser", arr);
+                if (dt != null && dt.Rows.Count > 0)
+                {
+                    for (int i = 0; i < dt.Rows.Count; i++)
+                    {
+                        res += dt.Rows[i][0].ToString();
+                    }
+                    if (res.Length > 0)
+                    {
+                        res = res.Substring(1, res.Length - 1);
+                        res = res.Substring(0, res.Length - 1);
+                    }
+                }
+                else
+                {
+                    res = "{\"sm\":\"没有返回数据\",\"result\":\"-99\"}";
+                }
+            }
+            catch (Exception ex)
+            {
+                res = "{\"sm\":\"" + "异常:" + ex.Message + "\",\"result\":\"-99\"}";
+            }
+
+            return res;
+        }
+
+        public static string addGoodsUser(string openid, string phone, string sex, string idCard, string relationship, string birthday, string goodsUserName)
+        {
+            string res = "";
+            try
+            {
+                birthday = idCard.Substring(6, 8);
+                ArrayList arr = new ArrayList();
+                if (sex.Equals("0")) sex = "男";
+                if (sex.Equals("1")) sex = "女";
+                arr.Add(new UProcPara("@openid", SqlDbType.VarChar, 50, openid));
+                arr.Add(new UProcPara("@phone", SqlDbType.VarChar, 11, phone));
+                arr.Add(new UProcPara("@sex", SqlDbType.VarChar, 5, sex));
+                arr.Add(new UProcPara("@idCard", SqlDbType.VarChar, 50, idCard));
+                arr.Add(new UProcPara("@relationship", SqlDbType.VarChar, 10, relationship));
+                arr.Add(new UProcPara("@birthday", SqlDbType.VarChar, 20, birthday));
+                arr.Add(new UProcPara("@goodsUserName", SqlDbType.VarChar, 20, goodsUserName));
+
+                DataTable dt = BaseSql.getInstance().procedure("p_user_addGoodsUser", arr);
+                if (dt != null && dt.Rows.Count > 0)
+                {
+                    for (int i = 0; i < dt.Rows.Count; i++)
+                    {
+                        res += dt.Rows[i][0].ToString();
+                    }
+                    if (res.Length > 0)
+                    {
+                        res = res.Substring(1, res.Length - 1);
+                        res = res.Substring(0, res.Length - 1);
+                    }
+                }
+                else
+                {
+                    res = "{\"sm\":\"没有返回数据\",\"result\":\"-99\"}";
+                }
+            }
+            catch (Exception ex)
+            {
+                res = "{\"sm\":\"" + "异常:" + ex.Message + "\",\"result\":\"-99\"}";
+            }
+
+            return res;
+        }
+
+        public static string delGoodsUser(string id, string openid)
+        {
+            string res = "";
+            try
+            {
+                ArrayList arr = new ArrayList();
+                arr.Add(new UProcPara("@id", SqlDbType.Int, 0, id));
+                arr.Add(new UProcPara("@openid", SqlDbType.VarChar, 50, openid));
+
+                DataTable dt = BaseSql.getInstance().procedure("p_user_delGoodsUser", arr);
+                if (dt != null && dt.Rows.Count > 0)
+                {
+                    for (int i = 0; i < dt.Rows.Count; i++)
+                    {
+                        res += dt.Rows[i][0].ToString();
+                    }
+                    if (res.Length > 0)
+                    {
+                        res = res.Substring(1, res.Length - 1);
+                        res = res.Substring(0, res.Length - 1);
+                    }
+                }
+                else
+                {
+                    res = "{\"sm\":\"没有返回数据\",\"result\":\"-99\"}";
+                }
+            }
+            catch (Exception ex)
+            {
+                res = "{\"sm\":\"" + "异常:" + ex.Message + "\",\"result\":\"-99\"}";
+            }
+
+            return res;
+        }
+    }
+}

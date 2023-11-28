@@ -1,0 +1,117 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
+
+namespace webapi_yzy.common
+{
+    public class yinhaiTool
+    {
+        private int keySize = 2048; // 密钥大小 单位bit
+        private string publicKey = "";//公钥
+        private string privateKey = "";//私钥
+        private string yinhaiServer = "";//银海接口服务器
+
+        public string GetPublicKey()
+        {
+            using (RSACryptoServiceProvider rsaProvider = new RSACryptoServiceProvider(keySize))
+            {
+                return rsaProvider.ToXmlString(false);
+            }
+        }
+
+        //content加密内容 publicKey 公钥
+        public string Encrypt(string content)
+        {
+            try
+            {
+                byte[] dataToEncrypt = Encoding.UTF8.GetBytes(content);
+                using (RSACryptoServiceProvider rsaProvider = new RSACryptoServiceProvider(keySize))
+                {
+                    rsaProvider.FromXmlString(publicKey);
+                    int maxLength = (keySize / 8) - 11; // 去除校验位后117字节有效内容
+
+                    // 没有超过117字节则直接返回加密内容
+                    if (dataToEncrypt.Length <= maxLength)
+                    {
+                        byte[] encryptedData = rsaProvider.Encrypt(dataToEncrypt, false);
+                        return Convert.ToBase64String(encryptedData);
+                    }
+                    else
+                    {
+                        List<byte> encryptedDataList = new List<byte>();
+                        int index = 0;
+
+                        // 嵌套加密
+                        while (index < dataToEncrypt.Length)
+                        {
+                            int remainingBytes = dataToEncrypt.Length - index;
+                            int bytesToCopy = Math.Min(remainingBytes, maxLength);
+
+                            byte[] chunk = new byte[bytesToCopy];
+                            Array.Copy(dataToEncrypt, index, chunk, 0, bytesToCopy);
+
+                            byte[] encryptedChunk = rsaProvider.Encrypt(chunk, false);
+                            encryptedDataList.AddRange(encryptedChunk);
+
+                            index += bytesToCopy;
+                        }
+
+                        return Convert.ToBase64String(encryptedDataList.ToArray());
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // 处理加密错误
+                return null;
+            }
+        }
+
+        //content解密内容 privateKey 私钥
+        public string Decrypt(string content)
+        {
+            try
+            {
+                byte[] encryptedData = Convert.FromBase64String(content);
+                using (RSACryptoServiceProvider rsaProvider = new RSACryptoServiceProvider(keySize))
+                {
+                    rsaProvider.FromXmlString(privateKey);
+                    int maxLength = (keySize / 8);
+
+                    if (encryptedData.Length <= maxLength)
+                    {
+                        byte[] decryptedData = rsaProvider.Decrypt(encryptedData, false);
+                        return Encoding.UTF8.GetString(decryptedData);
+                    }
+                    else
+                    {
+                        List<byte> decryptedDataList = new List<byte>();
+                        int index = 0;
+
+                        while (index < encryptedData.Length)
+                        {
+                            int remainingBytes = encryptedData.Length - index;
+                            int bytesToCopy = Math.Min(remainingBytes, maxLength);
+
+                            byte[] chunk = new byte[bytesToCopy];
+                            Array.Copy(encryptedData, index, chunk, 0, bytesToCopy);
+
+                            byte[] decryptedChunk = rsaProvider.Decrypt(chunk, false);
+                            decryptedDataList.AddRange(decryptedChunk);
+
+                            index += bytesToCopy;
+                        }
+
+                        return Encoding.UTF8.GetString(decryptedDataList.ToArray());
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // 处理解密错误
+                return null;
+            }
+        }
+    }
+}

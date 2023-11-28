@@ -1,0 +1,67 @@
+﻿using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Data;
+using System.Linq;
+using System.Threading.Tasks;
+
+
+namespace webapi_yzy
+{
+    public class DbOperator
+    {
+        /// <summary>
+        /// 获取Appsecret
+        /// </summary>
+        /// <param name="appid"></param>
+        /// <returns></returns>
+        public static string getAppsecret(string appid)
+        {
+            string sqlStr = "SELECT appsecret FROM zxcf_interface.dbo.T_zxcf_appid WITH(NOLOCK) WHERE appid = '" + appid + "'";
+            DataTable dt = BaseSql.getInstance().getDataTable(sqlStr);
+            if (dt == null || dt.Rows.Count == 0)
+            {
+                return "";
+            }
+            else
+            {
+                return dt.Rows[0]["appsecret"].ToString();
+            }
+        }
+      /// <summary>
+      /// 保存外部调用的日志
+      /// </summary>
+      /// <param name="appid"></param>
+      /// <param name="method">方法名</param>
+      /// <param name="czlx">操作类型</param>
+      /// <param name="inputData">输入数据</param>
+      /// <param name="outputData">输出数据</param>
+      /// <param name="flag">返回值</param>
+      /// <param name="flag_sm">返回值说明</param>
+      /// <param name="kssj">操作的开始时间</param>
+      /// <param name="jssj">操作的结束时间</param>
+        public static void saveWebapiOutputLog(string appid, string method, string czlx, string inputData, string outputData, 
+            int flag,string flag_sm, string kssj, string jssj)
+        {
+            try
+            {
+                ArrayList arrayList = new ArrayList();
+                arrayList.Add(new UProcPara("@appid", SqlDbType.VarChar, 50, appid));
+                arrayList.Add(new UProcPara("@method", SqlDbType.VarChar, 50, method));
+                arrayList.Add(new UProcPara("@czlx", SqlDbType.NVarChar, 30, czlx));
+                arrayList.Add(new UProcPara("@inputdata", SqlDbType.VarChar,inputData.Length*2 , inputData));
+                arrayList.Add(new UProcPara("@outputdata", SqlDbType.VarChar, outputData.Length * 2, outputData));
+                arrayList.Add(new UProcPara("@flag", SqlDbType.Int, 0, flag));
+                arrayList.Add(new UProcPara("@flag_sm", SqlDbType.NVarChar, 200, flag_sm));
+                arrayList.Add(new UProcPara("@kssj", SqlDbType.VarChar, 30, kssj));
+                arrayList.Add(new UProcPara("@jssj", SqlDbType.VarChar, 30, jssj));
+                DataTable dt = BaseSql.getInstance().procedure("p_webapi_output_insert_log", arrayList);
+            }
+            catch (Exception ex)
+            {
+
+            }
+        }
+
+    }
+}

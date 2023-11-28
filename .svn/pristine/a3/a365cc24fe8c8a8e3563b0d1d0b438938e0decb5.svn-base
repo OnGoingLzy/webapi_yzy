@@ -1,0 +1,21 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft": "Warning",
+      "Microsoft.Hosting.Lifetime": "Information"
+    }
+  },
+  "DBSetting": {
+
+    //"ConnectString": "server=172.16.123.105;uid=sa;pwd=123;database=gxfw_qtzx;"
+
+    "ConnectString": "server=172.16.123.41;uid=sa_lsz;pwd=123;database=gxfw_yzy;",
+
+
+    "ConnectStringZhyf": "server=172.16.123.105;uid=sa;pwd=123;database=gxfw_ywzx20230418;"
+
+  },
+  "YxTimeSpan": "360000",
+  "AllowedHosts": "*"
+}

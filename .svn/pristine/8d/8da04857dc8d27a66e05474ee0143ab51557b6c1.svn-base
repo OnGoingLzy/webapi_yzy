@@ -1,0 +1,143 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Newtonsoft.Json.Linq;
+using webapi_yzy.Model;
+using webapi_yzy.Service;
+
+namespace webapi_yzy.common {
+    public class RefundUtils {
+        public async Task<ActionResult> refundApplication(string obj) {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string trueBody = String.Empty;
+            string body = "";
+            string dbRes = String.Empty;
+            try {
+                //取头部信息
+                method = "/api/trade/refundApplication";//方法名称 
+                appid = "wxe7c826a1a5e00055";//appid
+                //取body
+                body = obj.ToString();
+
+                //2023-08-22 后禹谦
+                /* 先把身份验证的模块进行注释，因为该模块在C#端调用WebAPI时比较复杂
+
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                trueBody = reqObj["Body"].ToString();
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99) {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                */
+
+                JArray jsonArray = JArray.Parse(body ?? "[{\"returnedFlag\": \"-99\", \"returnedMsg\": \"异常情况\", \"main_order_id\": \"202300000000\"}]");
+                JObject jsonObject = (JObject)jsonArray[0];
+
+                string returnedFlag = jsonObject["returnedFlag"] == null ? "" : jsonObject["returnedFlag"].ToString();
+                string returnedMsg = jsonObject["returnedMsg"] == null ? "" : jsonObject["returnedMsg"].ToString();
+                string mainOrderId = jsonObject["main_order_id"] == null ? "" : jsonObject["main_order_id"].ToString();
+
+                if (returnedFlag != "99") {
+                    resultmsg.code = int.Parse(returnedFlag);
+                    resultmsg.msg = returnedMsg;
+                    DbOperator.saveWebapiOutputLog(appid, method, "提交退款申请", body, "获取智慧药房发起的退货订单", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //获取智慧药房发起的退货订单，状态位为99，代表该笔订单可以进行继续退款
+                dbRes = DbOperator.getRefundInfo(mainOrderId);
+                jsonObject = JObject.Parse(dbRes);
+                jsonArray = (JArray)jsonObject["data"];
+                JObject dataObject = (JObject)jsonArray[0];
+
+                //身份验证成功，开始处理数据#################################
+                //查询商品内容
+
+                WechatPayService payService = new WechatPayService();
+                string openid = dataObject["openid"] == null ? "" : dataObject["openid"].ToString();
+                string new_main_order_id = dataObject["new_main_order_id"] == null ? "" : dataObject["new_main_order_id"].ToString();
+                string out_order_id = dataObject["out_order_id"] == null ? "" : dataObject["out_order_id"].ToString();
+                string wxpay_order_id = dataObject["wxpay_order_id"] == null ? "" : dataObject["wxpay_order_id"].ToString();
+                string businessUnitId = dataObject["businessUnitId"] == null ? "" : dataObject["businessUnitId"].ToString();
+                decimal totalPrice = dataObject["totalPrice"] == null ? 0 : decimal.Parse(dataObject["totalPrice"].ToString());
+
+                //*********************************************************************************************************************
+                //提交退货申请只需要这些参数即可， new_main_order_id参数需上级方法给出(订单退单生成好之后,再将退单的新主订单号传给该方法)
+                refundObj refundObj = new refundObj();
+                refundObj.refundAmount = totalPrice;
+                refundObj.out_order_id = out_order_id;
+                refundObj.wxpay_order_id = wxpay_order_id;
+                string submitRefundApplicationResult = payService.submitRefundApplication(refundObj, businessUnitId, new_main_order_id, openid);
+
+                //*********************************************************************************************************************
+
+                //2023-08-23 下面是处理正式提起退款的环节
+                //对应testRequestRefund方法
+                jsonObject = JObject.Parse(submitRefundApplicationResult);
+                int flag = (int)jsonObject["flag"];
+                string sm = (string)jsonObject["sm"];
+
+                if (flag != 99) {
+                    dbRes = DbOperator.saveRefundOperateRecord(mainOrderId, "", flag, sm);
+                    resultmsg.code = flag;
+                    resultmsg.msg = sm;
+                    DbOperator.saveWebapiOutputLog(appid, method, "发起退款申请", submitRefundApplicationResult, "发起退款申请时出现失败记录", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //如果flag为99的话，证明取到的是正确的退款信息，此时就可以发起退款操作
+                jsonArray = (JArray)jsonObject["data"];
+                dataObject = (JObject)jsonArray[0];
+                string commitOutOrderId = dataObject["out_order_id"] == null ? "" : dataObject["out_order_id"].ToString();
+                string commitOriginOutOrderId = dataObject["origin_out_order_id"] == null ? "" : dataObject["origin_out_order_id"].ToString();
+
+                refundObj commitRefundObj = new refundObj();
+                commitRefundObj.out_order_id = commitOriginOutOrderId;
+                commitRefundObj.refundAmount = totalPrice;                      //要退款的金额
+                commitRefundObj.origin_totalPrice = totalPrice;                 //原订单总金额
+                string requestRefundResult = await payService.requestRefund(commitRefundObj, commitOutOrderId, openid, businessUnitId);
+
+                string operateMsg = String.Empty;
+                jsonObject = JObject.Parse(requestRefundResult);
+                if (int.TryParse((string)jsonObject["flag"], out flag)) {
+                    flag = (int)jsonObject["flag"];
+                    sm = (string)jsonObject["sm"];
+                } else {
+                    flag = -99;
+                    sm = (string)jsonObject["sm"];
+                    operateMsg = requestRefundResult;
+                }
+
+                /* 查询最终退款结果的方法就不在此处调用了
+                   而是开发一个统一的轮询支付结果和退款结果的方法或Winform前台程序
+                string testRequestQueryRefundResult = await payService.requestQueryRefund(commitOutOrderId, businessUnitId);
+                */
+
+                dbRes = DbOperator.saveRefundOperateRecord(mainOrderId, operateMsg, flag, sm);
+
+                resultmsg.code = flag;
+                resultmsg.msg = sm;
+                DbOperator.saveWebapiOutputLog(appid, method, "发起退款申请", submitRefundApplicationResult, "发起退款申请成功", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            } catch (Exception ex) {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = 99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, (resultmsg.data ?? "").ToString(), resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+    }
+}

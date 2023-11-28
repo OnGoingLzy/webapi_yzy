@@ -1,0 +1,73 @@
+﻿using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using webapi_yzy.Model;
+using SKIT.FlurlHttpClient.Wechat;
+using SKIT.FlurlHttpClient.Wechat.TenpayV3;
+using SKIT.FlurlHttpClient.Wechat.TenpayV3.Settings;
+using System.IO;
+using SKIT.FlurlHttpClient.Wechat.TenpayV3.Models;
+using System.Threading.Tasks;
+
+namespace webapi_yzy.Service
+{
+    //微信支付服务
+   
+    public class WechatPayService
+    {
+        public void testPay()
+        {
+           
+
+
+        }
+
+        public async Task<string> JSAPIpreOderAsync()
+        {
+            //初始化
+            var manager = new InMemoryCertificateManager();
+            string privateKey = File.ReadAllText("D:/微信证书工具/WXCertUtil/cert/20230811白药大药房证书文件/apiclient_key.pem");
+            var options = new WechatTenpayClientOptions()
+            {
+                MerchantId = "1218595101",
+                MerchantV3Secret = "20230811YnsyyyxgsBydyfDuiJieYzyA",
+                MerchantCertificateSerialNumber = "5C2BC119B2BF4F41ED42650AD6A54C68B7D6B7B3",
+                MerchantCertificatePrivateKey = privateKey,//-----BEGIN PRIVATE KEY-----微信商户证书私钥，即 `apiclient_key.pem` 文件内容-----END PRIVATE KEY-----
+                PlatformCertificateManager = manager // 平台证书管理器的具体用法请参阅下文的基础用法与加密、验签有关的章节
+            };
+            var client = new WechatTenpayClient(options);
+            /* 以 JSAPI 统一下单接口为例 */
+            var request = new CreatePayTransactionJsapiRequest()
+            {
+                OutTradeNumber = "yzy20230811testOrder1",
+                AppId = "wxe7c826a1a5e00055",
+                Description = "测试订单",
+                ExpireTime = DateTimeOffset.Now.AddMinutes(15),
+                NotifyUrl = "https://example.com",
+                Amount = new CreatePayTransactionJsapiRequest.Types.Amount()
+                {
+                    //金额数
+                    Total = 1
+                },
+                Payer = new CreatePayTransactionJsapiRequest.Types.Payer()
+                {
+                    OpenId = "oo2bD5W1e-wNDBIUHZuk9Pya_i90"
+                }
+            };
+            var response = await client.ExecuteCreatePayTransactionJsapiAsync(request);
+            if (response.IsSuccessful())
+            {
+                Console.WriteLine("PrepayId：" + response.PrepayId);
+                return response.PrepayId;
+            }
+            else
+            {
+                
+                return "错误代码:"+response.ErrorCode + " 错误描述:" +response.ErrorMessage;
+            }
+            
+        }
+
+    }
+}

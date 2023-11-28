@@ -1,0 +1,245 @@
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Text;
+using System.Threading.Tasks;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using Microsoft.AspNetCore.Mvc;
+using webapi_yzy.common;
+
+namespace webapi_yzy.Controllers {
+
+    [ApiController]
+    public class PushController : Controller {
+
+
+        //定义类变量，主要是spid和密钥等
+        private const string SPID_PROD = "718806033635475456";              //生产环境
+        private const string SPID_DEV = "718816295813906432";               //测试环境
+
+        private const string PWD_PROD = "0a0aea4d992fff8291f7edba2930a759";
+        private const string PWD_DEV = "d26eef44876cfcdabe24045d55aed673";
+
+        private const string PHARMACY_ID_PROD = "718806463757156352";
+        private const string PHARMACY_ID_DEV = "718816376378097664";
+
+        private const string URL_PROD = "https://recipe.hospf.com/clinic/open/app";
+        private const string URL_DEV = "https://dev.hospf.com/clinic/open/app";
+
+        /// <summary>
+        /// 推送服务状态检测
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <returns></returns>
+        [HttpGet("api/[controller]/status")]
+        public ActionResult status([FromQuery] object obj) {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessagePush resultMsgPush = new ResultMessagePush();
+            try {
+                resultMsgPush = new ResultMessagePush() { code = "0", succ = true };
+                DbOperator.saveWebapiOutputLogPush("smarthosPush", "/api/Push/status", "接口状态Status", "", "", int.Parse(resultMsgPush.code), "接口状态Status活动性测试成功", beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return Json(resultMsgPush);
+            } catch (Exception ex) {
+                //日志
+                resultMsgPush = new ResultMessagePush() { code = "-1", succ = false };
+                DbOperator.saveWebapiOutputLogPush("smarthosPush", "/api/Push/status", "接口状态Status", "", ex.Message, int.Parse(resultMsgPush.code), "接口状态Status活动性测试失败", beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return Json(resultMsgPush);
+            }
+        }
+
+
+        /// <summary>
+        /// 获取回调处方的状态
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <returns></returns>
+        [HttpPost("api/[controller]/push/clinic/status")]
+        public ActionResult getClinicStatus(object obj) {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessagePush resultMsgPush = new ResultMessagePush();
+            //头部信息
+            string method = "/api/Push/push/clinic/status";
+            string appid = "smarthosPush";
+            string sign = "";
+            string body = "";
+            
+            try {
+                //取Header的sign字段
+                sign = HttpContext.Request.Headers["sign"];  //Header-sign
+                //取body
+                body = obj.ToString();
+
+                //身份验证失败
+                if (sign != ApiRequestUtils.CheckSign(PWD_PROD, body))
+                {
+                    resultMsgPush = new ResultMessagePush() { code = "-1", succ = false };
+                    //日志
+                    DbOperator.saveWebapiOutputLog(appid, method, "回调接口验签", body, "", int.Parse(resultMsgPush.code), "回调接口验签失败，签名不一致", beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultMsgPush);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //查询商品内容
+                // "Body" 字段解析为一个 JObject 对象
+                JObject bodyObject = JObject.Parse(body ?? string.Empty);
+
+                //获取问诊ID
+                string clinicId = bodyObject["clinicId"] == null ? "" : bodyObject["clinicId"].ToString();
+                //获取问诊状态
+                string status = bodyObject["status"] == null ? "" : bodyObject["status"].ToString();
+                //获取该问诊状态的状态含义
+                string statusMeaning = bodyObject["statusMeaning"] == null ? "" : bodyObject["statusMeaning"].ToString();
+                //获取取消原因
+                string cancelReason = bodyObject["cancelReason"] == null ? "" : bodyObject["cancelReason"].ToString();
+
+                string dbRes = DbOperator.saveClinicStatus(clinicId, status, statusMeaning, cancelReason);
+                JObject jsonResultObject = (JObject)JsonConvert.DeserializeObject(dbRes);
+                string flagResult = jsonResultObject["flag"].ToString();
+                //如果从数据库层返回的是失败信息
+                if (flagResult != "99") {
+                    resultMsgPush = new ResultMessagePush() { code = "-1", succ = false };
+                    //日志
+                    DbOperator.saveWebapiOutputLog(appid, method, "保存回调处方状态", body, "", int.Parse(resultMsgPush.code), "保存回调处方状态失败，数据库异常：" + jsonResultObject["result"], beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultMsgPush);
+                }
+                //如果返回的是成功的信息，则代表问诊状态保存成功，流程结束
+                else
+                {
+                    resultMsgPush = new ResultMessagePush() { code = "0", succ = true };
+                    //日志
+                    DbOperator.saveWebapiOutputLog(appid, method, "保存回调处方状态", body, "", int.Parse(resultMsgPush.code), "保存回调处方状态成功", beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultMsgPush);
+                }
+            } catch (Exception ex) {
+
+                resultMsgPush = new ResultMessagePush() { code = "-1", succ = false };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "保存回调处方状态", body, "", int.Parse(resultMsgPush.code), "保存回调处方状态失败，" + ex.Message, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultMsgPush);
+            }
+        }
+
+        /// <summary>
+        /// 回调接口，该接口主要是接收医方推送的开方信息
+        /// 3.2.1 开方回调
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <returns></returns>
+        [HttpPost("api/[controller]/push/recipe")]
+        public ActionResult getClinicRecipe(object obj) {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessagePush resultMsgPush = new ResultMessagePush();
+            //头部信息
+            string method = "/api/Push/push/recipe";
+            string appid = "smarthosPush";
+            string sign = "";
+            string body = "";
+
+            try {
+                //取Header的sign字段
+                sign = HttpContext.Request.Headers["sign"];  //Header-sign
+                //取body
+                body = obj.ToString();
+
+                //身份验证失败
+                if (sign != ApiRequestUtils.CheckSign(PWD_PROD, body)) {
+                    resultMsgPush = new ResultMessagePush() { code = "-1", succ = false };
+                    //日志
+                    DbOperator.saveWebapiOutputLog(appid, method, "回调接口验签", body, "", int.Parse(resultMsgPush.code), "回调接口验签失败，签名不一致", beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultMsgPush);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //直接将body字符串全部放到存储过程中进行解析
+                string dbRes = DbOperator.saveClinicRecipe(body);
+                JObject jsonResultObject = (JObject)JsonConvert.DeserializeObject(dbRes);
+                string flagResult = jsonResultObject["flag"].ToString();
+                //如果从数据库层返回的是失败信息
+                if (flagResult != "99") {
+                    resultMsgPush = new ResultMessagePush() { code = "-1", succ = false };
+                    //日志
+                    DbOperator.saveWebapiOutputLog(appid, method, "保存开方回调信息", body, "", int.Parse(resultMsgPush.code), "保存开方回调信息失败，数据库异常：" + jsonResultObject["result"], beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultMsgPush);
+                }
+                //如果返回的是成功的信息，则代表问诊状态保存成功，流程结束
+                else {
+                    resultMsgPush = new ResultMessagePush() { code = "0", succ = true };
+                    //日志
+                    DbOperator.saveWebapiOutputLog(appid, method, "保存开方回调信息", body, "", int.Parse(resultMsgPush.code), "保存开方回调信息成功", beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultMsgPush);
+                }
+            } catch (Exception ex) {
+
+                resultMsgPush = new ResultMessagePush() { code = "-1", succ = false };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "保存开方回调信息", body, "", int.Parse(resultMsgPush.code), "保存开方回调信息失败，" + ex.Message, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultMsgPush);
+            }
+        }
+
+        /// <summary>
+        /// 回调接口，该接口主要是接收医方推送的开方信息
+        /// 3.2.2 审方回调
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <returns></returns>
+        [HttpPost("api/[controller]/push/recipe/audit")]
+        public ActionResult getClinicRecipeAudit(object obj) {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessagePush resultMsgPush = new ResultMessagePush();
+            //头部信息
+            string method = "/api/Push/push/recipe/audit";
+            string appid = "smarthosPush";
+            string sign = "";
+            string body = "";
+
+            try {
+                //取Header的sign字段
+                sign = HttpContext.Request.Headers["sign"];  //Header-sign
+                //取body
+                body = obj.ToString();
+
+                //身份验证失败
+                if (sign != ApiRequestUtils.CheckSign(PWD_PROD, body)) {
+                    resultMsgPush = new ResultMessagePush() { code = "-1", succ = false };
+                    //日志
+                    DbOperator.saveWebapiOutputLog(appid, method, "回调接口验签", body, "", int.Parse(resultMsgPush.code), "回调接口验签失败，签名不一致", beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultMsgPush);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //直接将body字符串全部放到存储过程中进行解析
+                string dbRes = DbOperator.saveClinicRecipe(body);
+                JObject jsonResultObject = (JObject)JsonConvert.DeserializeObject(dbRes);
+                string flagResult = jsonResultObject["flag"].ToString();
+                //如果从数据库层返回的是失败信息
+                if (flagResult != "99") {
+                    resultMsgPush = new ResultMessagePush() { code = "-1", succ = false };
+                    //日志
+                    DbOperator.saveWebapiOutputLog(appid, method, "保存审方回调信息", body, "", int.Parse(resultMsgPush.code), "保存审方回调信息失败，数据库异常：" + jsonResultObject["result"], beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultMsgPush);
+                }
+                //如果返回的是成功的信息，则代表问诊状态保存成功，流程结束
+                else {
+                    resultMsgPush = new ResultMessagePush() { code = "0", succ = true };
+                    //日志
+                    DbOperator.saveWebapiOutputLog(appid, method, "保存审方回调信息", body, "", int.Parse(resultMsgPush.code), "保存审方回调信息成功", beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultMsgPush);
+                }
+            } catch (Exception ex) {
+
+                resultMsgPush = new ResultMessagePush() { code = "-1", succ = false };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "保存审方回调信息", body, "", int.Parse(resultMsgPush.code), "保存审方回调信息失败，" + ex.Message, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultMsgPush);
+            }
+        }
+    }
+}

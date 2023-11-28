@@ -1,0 +1,397 @@
+﻿using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using webapi_yzy.Model;
+using SKIT.FlurlHttpClient.Wechat;
+using SKIT.FlurlHttpClient.Wechat.TenpayV3;
+using SKIT.FlurlHttpClient.Wechat.TenpayV3.Settings;
+using System.IO;
+using SKIT.FlurlHttpClient.Wechat.TenpayV3.Models;
+using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
+
+namespace webapi_yzy.Service
+{
+    //微信支付服务
+   
+    public class WechatPayService
+    {
+        public void testPay()
+        {
+           
+
+
+        }
+
+        //调用微信预支付接口,预支付表插入新元组,返回调起微信支付需要的参数
+        //入参:主订单id，业务单元id，总额，用户openid
+        //注意事项: main_order_id需要在上一级函数检查是否有重复主流水号, 当用户已经创建了预付单,但是未支付时,不可使用该方法
+        public async Task<string> JSAPIpreOrderAsync(string main_order_id,string businessUnitId, decimal totalPrice,string openid)
+        {
+
+            // 将 decimal 值乘以 100 并转换为 int 单位变为分
+            int totalPriceInt = (int)(totalPrice * 100);
+            //从数据库中获取商户配置信息
+            string dbRes1 = DbOperator.getMerchantInfo(businessUnitId);
+            JObject bodyObject = JObject.Parse(dbRes1);
+            //初始化
+            var manager = new InMemoryCertificateManager();
+            var options = new WechatTenpayClientOptions()
+            {
+                MerchantId = (string)bodyObject["data"][0]["MerchantId"],
+                MerchantV3Secret = (string)bodyObject["data"][0]["MerchantV3Secret"],
+                MerchantCertificateSerialNumber = (string)bodyObject["data"][0]["MerchantCertificateSerialNumber"],
+                MerchantCertificatePrivateKey = (string)bodyObject["data"][0]["MerchantCertificatePrivateKey"],//-----BEGIN PRIVATE KEY-----微信商户证书私钥，即 `apiclient_key.pem` 文件内容-----END PRIVATE KEY-----
+                PlatformCertificateManager = manager // 平台证书管理器的具体用法请参阅下文的基础用法与加密、验签有关的章节
+            };
+            var client = new WechatTenpayClient(options);
+            /* 以 JSAPI 统一下单接口为例 */
+            //string out_order_id = "yzy20230811testOrder2";
+            string out_order_id = SnowflakeGenerator(businessUnitId);  //用业务单元id作为机器码生成唯一商户支付订单号id
+            try
+            {
+                var request = new CreatePayTransactionJsapiRequest()
+                {
+
+                    //OutTradeNumber = "yzy20230811testOrder2",
+                    OutTradeNumber = out_order_id,
+                    AppId = "wxe7c826a1a5e00055",
+                    Description = "云找药购药",//订单描述
+                    ExpireTime = DateTimeOffset.Now.AddMinutes(15),
+                    NotifyUrl = "https://cwapi.dyb.yn.cn/api/example/wxPayNotice",
+                    Amount = new CreatePayTransactionJsapiRequest.Types.Amount()
+                    {
+                        //金额数
+                        Total = 1
+                        //Total = totalPriceInt
+                    },
+                    Payer = new CreatePayTransactionJsapiRequest.Types.Payer()
+                    {
+                        //OpenId = "oo2bD5W1e-wNDBIUHZuk9Pya_i90"
+                        OpenId = openid
+                    }
+                };
+                var response = await client.ExecuteCreatePayTransactionJsapiAsync(request);
+                if (response.IsSuccessful())
+                {
+                    /*新建支付订单*/
+                    var GetPayTransactionByOutTradeNumberResponse = await GetPayTransactionByOutTradeNumber(out_order_id, businessUnitId);
+
+                    if (GetPayTransactionByOutTradeNumberResponse.IsSuccessful())
+                    {
+                        string dbRes = DbOperator.createWxPrePayOrder(response.PrepayId, GetPayTransactionByOutTradeNumberResponse,main_order_id,openid);
+                        JObject dbResObj = JObject.Parse(dbRes);
+                        if ((int)dbResObj["flag"] == 99)
+                        {
+                            var paramMap = client.GenerateParametersForJsapiPayRequest(request.AppId, response.PrepayId);
+                            string json = JsonConvert.SerializeObject(paramMap);
+                            // 解析现有的 JSON 字符串为 JObject
+                            JObject existingObject = JObject.Parse(json);
+                            // 添加新的属性
+                            existingObject["main_order_id"] = main_order_id;
+                            existingObject["out_order_id"] = out_order_id;
+                            // 将 JObject 转换回 JSON 字符串
+                            string updatedJson = JsonConvert.SerializeObject(existingObject);
+
+                            return updatedJson;
+                        }
+                        else
+                        {
+                            return "{\"errorCode\":\"" + -99 + "\",\"errorInfo\":\" 创建预支付表失败!"+ dbResObj["sm"] + "\"}";
+                        }
+                    }
+                    else
+                    {
+
+                        return "{\"errorCode\":\"" + response.ErrorCode + "\",\"errorInfo\":\"" + response.ErrorMessage + "\"}";
+                    }
+                }
+                else
+                {
+
+                    return "{\"errorCode\":\"" + response.ErrorCode + "\",\"errorInfo\":\"" + response.ErrorMessage + "\"}";
+                }
+            }
+            catch (Exception ex)
+            {
+
+                throw ex;
+            }
+            
+        }
+
+        //获取小程序调起微信支付所需参数
+        public string getPrePayParam(string main_order_id,string businessUnitId,string openid)
+        {
+            //获取商户配置信息
+            string dbRes1 = DbOperator.getMerchantInfo(businessUnitId);
+            JObject bodyObject = JObject.Parse(dbRes1);
+            //初始化
+            var manager = new InMemoryCertificateManager();
+            //string privateKey = File.ReadAllText("D:/wechat证书/20230811白药大药房证书文件/apiclient_key.pem");
+            var options = new WechatTenpayClientOptions()
+            {
+                MerchantId = (string)bodyObject["data"][0]["MerchantId"],
+                MerchantV3Secret = (string)bodyObject["data"][0]["MerchantV3Secret"],
+                MerchantCertificateSerialNumber = (string)bodyObject["data"][0]["MerchantCertificateSerialNumber"],
+                MerchantCertificatePrivateKey = (string)bodyObject["data"][0]["MerchantCertificatePrivateKey"],//-----BEGIN PRIVATE KEY-----微信商户证书私钥，即 `apiclient_key.pem` 文件内容-----END PRIVATE KEY-----
+                PlatformCertificateManager = manager // 平台证书管理器的具体用法请参阅下文的基础用法与加密、验签有关的章节
+            };
+            var client = new WechatTenpayClient(options);
+            string AppId = "wxe7c826a1a5e00055";
+            string dbRes = DbOperator.getPrePayId(main_order_id,openid);
+            JObject dbResObj = JObject.Parse(dbRes);
+            if ((int)dbResObj["flag"] == 99)
+            {
+                string prepayId = (string)dbResObj["data"][0]["prepay_id"];
+                var paramMap = client.GenerateParametersForJsapiPayRequest(AppId, prepayId);
+                string json = JsonConvert.SerializeObject(paramMap);
+                JObject existingObject = JObject.Parse(json);
+                // 添加新的属性
+                existingObject["main_order_id"] = main_order_id;
+                existingObject["out_order_id"] = (string)dbResObj["data"][0]["out_order_id"];
+                // 将 JObject 转换回 JSON 字符串
+                string updatedJson = JsonConvert.SerializeObject(existingObject);
+                
+
+                return updatedJson;
+            }
+            else
+            {
+                return "该预付单不存在!";
+            }
+            
+           
+        }
+        //添加或更新支付订单表,使用主订单号查询
+        public string addOrUpdateWxPayOrder(GetPayTransactionByOutTradeNumberResponse wxPayOrderInfo,string main_order_id)
+        {
+            if (wxPayOrderInfo.IsSuccessful())//查询成功则更新或新增支付订单表数据并且返回信息
+            {
+                if (wxPayOrderInfo.TransactionId == null)
+                {
+                    return "{\"flag\":\" -99 \",\"data\":\" 该订单未支付! \"}";
+                }
+                string dbRes = DbOperator.addOrUpdateWxPayOrder(wxPayOrderInfo, main_order_id);
+                JObject dbResObj = JObject.Parse(dbRes);
+
+                return dbRes;
+            }
+            else
+            {
+                return "{\"flag\":\"" + wxPayOrderInfo.ErrorCode + "\",\"data\":\"" + wxPayOrderInfo.ErrorMessage + "\"}";
+            }
+        }
+
+        //调用微信接口查询支付结果 需要支付流水号(out_order_id),除了微信回调通知,还应在用户支付完调用这一个方法更新订单状态
+        //需要使用支付订单号及业务单元代码来查询
+        public async Task<GetPayTransactionByOutTradeNumberResponse> GetPayTransactionByOutTradeNumber(string out_order_id, string businessUnitId)
+        {
+            //获取商户配置信息
+            string dbRes1 = DbOperator.getMerchantInfo(businessUnitId);
+            JObject bodyObject = JObject.Parse(dbRes1);
+            //初始化
+            var manager = new InMemoryCertificateManager();
+            //string privateKey = File.ReadAllText("D:/wechat证书/20230811白药大药房证书文件/apiclient_key.pem");
+            var options = new WechatTenpayClientOptions()
+            {
+                MerchantId = (string)bodyObject["data"][0]["MerchantId"],
+                MerchantV3Secret = (string)bodyObject["data"][0]["MerchantV3Secret"],
+                MerchantCertificateSerialNumber = (string)bodyObject["data"][0]["MerchantCertificateSerialNumber"],
+                MerchantCertificatePrivateKey = (string)bodyObject["data"][0]["MerchantCertificatePrivateKey"],//-----BEGIN PRIVATE KEY-----微信商户证书私钥，即 `apiclient_key.pem` 文件内容-----END PRIVATE KEY-----
+                PlatformCertificateManager = manager // 平台证书管理器的具体用法请参阅下文的基础用法与加密、验签有关的章节
+            };
+            var client = new WechatTenpayClient(options);
+            var request = new GetPayTransactionByOutTradeNumberRequest()
+            {
+                MerchantId = (string)bodyObject["data"][0]["MerchantId"],
+                OutTradeNumber = out_order_id
+            };
+            var response = await client.ExecuteGetPayTransactionByOutTradeNumberAsync(request);
+            //将参数返回          
+            return response;
+        }
+        /*
+        提交退款申请
+        必须参数:refundObj中
+        refundObj.refundAmount  退款金额
+        refundObj.out_order_id  原商户订单id
+        refundObj.wxpay_order_id 原微信订单id
+        new_main_order_id 新主订单号
+        openid 用户表示
+        */
+        public string submitRefundApplication(refundObj refundObj ,string businessUnitId,string new_main_order_id,string openid)
+        {
+            string new_out_order_id = SnowflakeGenerator(businessUnitId);
+            string dbRes = DbOperator.submitRefundApplication(refundObj, new_main_order_id, new_out_order_id,openid);
+            
+            return dbRes;  
+                
+        }
+
+        //请求退款接口
+        //该方法应在智慧药房后台审核通过后,调用该方法向微信接口发起退款请求
+        //所需参数请从管理后台传入
+        //若只退款部分则需要传入商品明细List
+        public async Task<string> requestRefund(refundObj refundObj,string out_order_id, string openid,string businessUnitId)
+        {
+            //
+
+            //获取商户配置信息
+            string dbRes1 = DbOperator.getMerchantInfo(businessUnitId);
+            JObject bodyObject = JObject.Parse(dbRes1);
+            //初始化
+            var manager = new InMemoryCertificateManager();
+            //string privateKey = File.ReadAllText("D:/wechat证书/20230811白药大药房证书文件/apiclient_key.pem");
+            var options = new WechatTenpayClientOptions()
+            {
+                MerchantId = (string)bodyObject["data"][0]["MerchantId"],
+                MerchantV3Secret = (string)bodyObject["data"][0]["MerchantV3Secret"],
+                MerchantCertificateSerialNumber = (string)bodyObject["data"][0]["MerchantCertificateSerialNumber"],
+                MerchantCertificatePrivateKey = (string)bodyObject["data"][0]["MerchantCertificatePrivateKey"],//-----BEGIN PRIVATE KEY-----微信商户证书私钥，即 `apiclient_key.pem` 文件内容-----END PRIVATE KEY-----
+                PlatformCertificateManager = manager // 平台证书管理器的具体用法请参阅下文的基础用法与加密、验签有关的章节
+            };
+            var client = new WechatTenpayClient(options);
+            string AppId = "wxe7c826a1a5e00055";
+            var request = new CreateRefundDomesticRefundRequest()
+            {
+                OutTradeNumber = refundObj.out_order_id, //原商户订单号
+                OutRefundNumber = out_order_id,
+                Amount =
+                {
+                    Refund = (int)(refundObj.refundAmount*100), //退款金额,单位分
+                    Total = (int)(refundObj.origin_totalPrice*100), //原订单总金额
+                    Currency = "CNY",
+                }
+            };
+            var response = await client.ExecuteCreateRefundDomesticRefundAsync(request);
+            if (response.IsSuccessful())
+            {
+                DateTimeOffset successTime = new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero);
+                if (response.SuccessTime != null)
+                {
+                    successTime = (DateTimeOffset)response.SuccessTime;
+                }
+                
+                string dbRes = DbOperator.updateWxPayRefundOrder(response.OutRefundNumber,response.RefundId,response.TransactionId,response.Status, successTime);
+
+                return dbRes;
+            }
+            else
+            {
+                return "{\"flag\":\"" + response.ErrorCode + "\",\"sm\":\"" + response.ErrorMessage + "\"}";
+            }
+            
+        }
+
+        //查询微信退款状态
+        public async Task<string> requestQueryRefund(string out_order_id,  string businessUnitId)
+        {
+            //
+
+            //获取商户配置信息
+            string dbRes1 = DbOperator.getMerchantInfo(businessUnitId);
+            JObject bodyObject = JObject.Parse(dbRes1);
+            //初始化
+            var manager = new InMemoryCertificateManager();
+            //string privateKey = File.ReadAllText("D:/wechat证书/20230811白药大药房证书文件/apiclient_key.pem");
+            var options = new WechatTenpayClientOptions()
+            {
+                MerchantId = (string)bodyObject["data"][0]["MerchantId"],
+                MerchantV3Secret = (string)bodyObject["data"][0]["MerchantV3Secret"],
+                MerchantCertificateSerialNumber = (string)bodyObject["data"][0]["MerchantCertificateSerialNumber"],
+                MerchantCertificatePrivateKey = (string)bodyObject["data"][0]["MerchantCertificatePrivateKey"],//-----BEGIN PRIVATE KEY-----微信商户证书私钥，即 `apiclient_key.pem` 文件内容-----END PRIVATE KEY-----
+                PlatformCertificateManager = manager // 平台证书管理器的具体用法请参阅下文的基础用法与加密、验签有关的章节
+            };
+            var client = new WechatTenpayClient(options);
+            string AppId = "wxe7c826a1a5e00055";
+            var request = new GetRefundDomesticRefundByOutRefundNumberRequest()
+            {
+                OutRefundNumber = out_order_id //微信退款订单号
+            };
+            var response = await client.ExecuteGetRefundDomesticRefundByOutRefundNumberAsync(request);
+
+            if (response.IsSuccessful())
+            {
+                string dbRes = DbOperator.updateWxPayRefundOrder(response.OutRefundNumber, response.RefundId, response.TransactionId, response.Status, (DateTimeOffset)response.SuccessTime);
+
+                return dbRes;
+            }
+            else
+            {
+                return "{\"errorCode\":\"" + response.ErrorCode + "\",\"errorInfo\":\"" + response.ErrorMessage + "\"}";
+            }
+
+        }
+
+
+        private static long lastTimestamp = -1;
+        private static long sequence = 0;
+
+        private static readonly object lockObject = new object();
+
+        //日期+雪花算法生成序号
+        //machineId 节点id，可传入业务单元id或者门店id，传入业务单元id一般作为主流水号以及支付订单号,
+        public string SnowflakeGenerator(string machineId)
+        {
+            long asciiMachineId = GetAsciiValue(machineId);
+
+            lock (lockObject)
+            {
+                long timestamp = GetTimestamp();
+
+                if (timestamp == lastTimestamp)
+                {
+                    sequence = (sequence + 1) & 4095; 
+                    if (sequence == 0)
+                    {
+                        timestamp = WaitForNextTimestamp(lastTimestamp);
+                    }
+                }
+                else
+                {
+                    sequence = 0;
+                }
+
+                lastTimestamp = timestamp;
+
+                long uniqueId = ((timestamp << 22) | (asciiMachineId << 12) | sequence);
+                DateTime currentDate = DateTime.Now;
+                string formattedDate = currentDate.ToString("yyyyMMdd");  //雪花算法前加日期
+                return formattedDate + uniqueId.ToString(); 
+            }
+        }
+        
+
+        private static long GetAsciiValue(string input)
+        {
+            long total = 0;
+            foreach (char c in input)
+            {
+                total += (int)c;
+            }
+            return total;
+        }
+
+        private static long GetTimestamp()
+        {
+            return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        }
+
+        private static long WaitForNextTimestamp(long lastTimestamp)
+        {
+            long timestamp = GetTimestamp();
+            while (timestamp <= lastTimestamp)
+            {
+                timestamp = GetTimestamp();
+            }
+            return timestamp;
+        }
+
+
+
+
+
+    }
+}

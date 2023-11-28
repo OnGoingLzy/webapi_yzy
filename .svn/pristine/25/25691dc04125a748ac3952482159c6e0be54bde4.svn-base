@@ -1,0 +1,374 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
+using System.Net.Http;
+using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
+using webapi_yzy.Model;
+using Newtonsoft.Json;
+
+namespace webapi_yzy.common
+{
+    public class yinhaiTool
+    {
+        private int keySize = 2048; // 密钥大小 单位bit
+        //平台公钥 加密用
+        private string publicKey = @"MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCh6z0diZuQ7eHk+IBpgXBVnab9n9kX0u3iPHzrvdQcXXSgT1z3+cfDGA99fnR7D1igZKrzY0zjKuACrpI5hFhhzcjm95eGwhHVurTiOB5JCnywssbsZ0gUsy+4HitLdRNXRMLv4BmGgaCPZARuKB6XDMWGtdFGWM5i71VIHk0WqQIDAQAB";//平台公钥
+        //平台私钥 解密用
+        private string yyjgbm = "P53050201208";
+        private string jrxtsqm = "e03c9add2ba740afa19ff936acb059b8";
+        private string jrxtbm = "1002100022";
+        private string privateKey = @"MIICdgIBADANBgkqhkiG9w0BAQEFAASCAmAwggJcAgEAAoGBALLD9y5oqVj/M2KNb2jYRRRBWjDukGI7BNAciXMQAp23KIVKOoNkJ4WpsqwITAlyzW9dbQosvO9CfgR4h47gq0g+xSzttkkNnkz5T8W/qyvgFwNmbFQAsYNARQAAEpVftQ1kDNR8H7zOY6Dy2hV9uhqzCu2DqSv3M4jPOm+tAYeZAgMBAAECgYBe7JAkpI7IIzs16cRu9+g2iT1LHmKsxooXuA+Eecvp04hAvtmzS0txPlsR3pYBrmRH7mQoMvlgUv53gUj6JXLNVtGp5Nj7UZWQb5jpHvOTlg2cCU1S4MePqZG/JPLdV92ME1HZ6JrIY8rJcyvnoMfEQPJewx+PHCCMh2amU5ZUwQJBANi6Q/uOzXF8S3+zoN/xkl6bvvPj9bQtloIpw/3HyKWlGBSur/NA5r5DN1k5GN22XxW3YVqqwag0NEGuxnmCMbcCQQDTKK7fEMPrGpNi8UuoT+KlItvCnknzVrlqpVn5NuQwJ3gv9PAyy+EFChHPYP7iwW4aZNoJsplruA6ymRh4nNEvAkEAm58sf67r4IiC4gDHDOc21g550EEpRibSA0cgP9O8RQ1GPFuvZjl9NrOnQ78XFuUEY+CY3HTut+w8dcmdJNUTAwJAbv2jbXzSfnGppwhOTFoxN7vq55FsLYwYSgZAFM7Vgro8YnjNCOZBkPSKCAdj8qzZwuXf9dj667QDhb0TL9K94QJACUuTOweK6xfddX2xK9Z+y2AR7I0PK/FRboaa0+yP7BClla0woPgWwimh7xUccfCg3XIYF6gFHL5Zsolj/ZeXhw==";//私钥
+        private string yinhaiServer = "http://zhuguangcao.mynatapp.cc/dsmp-api/api/public/app/";//银海接口服务器
+
+
+        public responseYinhaiObject generateYinHaiOrderParam(JObject orderJsonObject, string main_order_id)
+        {
+            //生成银海创建订单所需要的参数
+            //*********************************************************************************************************************
+            yinhaiCreateOrderObject yinhaiCreateOrderObject = new yinhaiCreateOrderObject();
+            yinhaiCreateOrderObject_ordBizPara yinhaiCreateOrderObject_OrdBizPara = new yinhaiCreateOrderObject_ordBizPara();
+            
+            responseYinhaiObject responseYinhaiObject = new responseYinhaiObject();
+            //调用存过获取参数
+            string orderParam = DbOperator.getYinHaiOrderParam(main_order_id);
+            JObject orderParamObj = (JObject)JsonConvert.DeserializeObject(orderParam);
+            if (orderParamObj["flag"]==null || (int)orderParamObj["flag"]==-99)
+            {
+                responseYinhaiObject.flag = -99;
+                responseYinhaiObject.sm = (string)orderParamObj["sm"];
+            }
+            responseYinhaiObject.flag = (int)orderParamObj["flag"];
+            responseYinhaiObject.sm = (string)orderParamObj["sm"];
+            responseYinhaiObject.medins_code = (string)orderParamObj["data"][0]["medins_code"];
+            responseYinhaiObject.medins_name = (string)orderParamObj["data"][0]["medins_name"];
+            responseYinhaiObject.dppSyscode = (string)orderParamObj["data"][0]["dppSyscode"];
+            yinhaiCreateOrderObject.ord_biz_type = "5001";
+            yinhaiCreateOrderObject.acss_sys_ord_no = main_order_id;
+            yinhaiCreateOrderObject.ord_sumamt = Math.Round((decimal)orderJsonObject["data"][0]["totalPrice"], 2);
+            yinhaiCreateOrderObject_OrdBizPara.mdtrt_sn = main_order_id;
+            yinhaiCreateOrderObject_OrdBizPara.mdtrt_sid = main_order_id;
+            yinhaiCreateOrderObject_OrdBizPara.doc_type = "6";
+            yinhaiCreateOrderObject_OrdBizPara.setl_docno = main_order_id;
+            yinhaiCreateOrderObject_OrdBizPara.chrg_type = "1";  //1自费 2医保
+            yinhaiCreateOrderObject_OrdBizPara.psn_name = (string)orderParamObj["data"][0]["goodsUserName"];
+            yinhaiCreateOrderObject_OrdBizPara.psn_cert_type = "01"; //证件类型
+            yinhaiCreateOrderObject_OrdBizPara.brdy = (string)orderParamObj["data"][0]["birthday"]; 
+            yinhaiCreateOrderObject_OrdBizPara.certno = (string)orderParamObj["data"][0]["idCard"];
+            yinhaiCreateOrderObject_OrdBizPara.idcard = (string)orderParamObj["data"][0]["idCard"];
+            yinhaiCreateOrderObject_OrdBizPara.mob = (string)orderParamObj["data"][0]["phone"];
+            yinhaiCreateOrderObject_OrdBizPara.gend = "1";
+            DateTime birthday = DateTime.ParseExact((string)orderParamObj["data"][0]["birthday"], "yyyy-MM-dd", null);
+            int age = DateTime.Now.Year - birthday.Year;
+            if (DateTime.Now.DayOfYear < birthday.DayOfYear)
+            {
+                age--;
+            }
+            yinhaiCreateOrderObject_OrdBizPara.age = age.ToString(); //计算得出
+            yinhaiCreateOrderObject_OrdBizPara.med_type = "41";
+            yinhaiCreateOrderObject_OrdBizPara.sumfee = Math.Round((decimal)orderJsonObject["data"][0]["totalPrice"], 2);
+            yinhaiCreateOrderObject_OrdBizPara.mdtrt_time = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
+            JArray feeDetlListsArray = orderParamObj["data"][0]["feeDetlLists"] as JArray;
+
+            yinhaiCreateOrderObject_ordBizPara_feeDetlList[] yinhaiCreateOrderObject_OrdBizPara_FeeDetlLists = new yinhaiCreateOrderObject_ordBizPara_feeDetlList[feeDetlListsArray.Count];
+            for(int i = 0; i< feeDetlListsArray.Count; i++)
+            {
+                yinhaiCreateOrderObject_OrdBizPara_FeeDetlLists[i] = new yinhaiCreateOrderObject_ordBizPara_feeDetlList();
+                JObject item = (JObject)feeDetlListsArray[i];
+                if (item.HasValues)
+                {
+                    yinhaiCreateOrderObject_OrdBizPara_FeeDetlLists[i].feedetl_sn = (string)item["detail_order_id"];
+                    yinhaiCreateOrderObject_OrdBizPara_FeeDetlLists[i].chrg_bchno = (string)item["detail_order_id"];
+                    yinhaiCreateOrderObject_OrdBizPara_FeeDetlLists[i].rx_circ_flag = "0";
+                    yinhaiCreateOrderObject_OrdBizPara_FeeDetlLists[i].spec = (string)item["specification"];
+                    yinhaiCreateOrderObject_OrdBizPara_FeeDetlLists[i].cnt = (int)item["num"];
+                    yinhaiCreateOrderObject_OrdBizPara_FeeDetlLists[i].pric = (decimal)item["unitPrice"]; ;
+                    yinhaiCreateOrderObject_OrdBizPara_FeeDetlLists[i].det_item_fee_sumamt = (decimal)item["totalPrice"]; ;
+                    yinhaiCreateOrderObject_OrdBizPara_FeeDetlLists[i].fee_ocur_time = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                    yinhaiCreateOrderObject_OrdBizPara_FeeDetlLists[i].hosp_appr_flag = "0";
+                    yinhaiCreateOrderObject_OrdBizPara_FeeDetlLists[i].medins_list_codg = (string)item["goodsId"];
+                    yinhaiCreateOrderObject_OrdBizPara_FeeDetlLists[i].medins_list_name = (string)item["genericName"];
+                }
+               
+            }
+           
+            yinhaiCreateOrderObject_OrdBizPara.fee_detl_list = yinhaiCreateOrderObject_OrdBizPara_FeeDetlLists;
+            yinhaiCreateOrderObject.ord_biz_para = yinhaiCreateOrderObject_OrdBizPara;
+
+            
+            responseYinhaiObject.yinhaiCreateOrderObject = yinhaiCreateOrderObject;
+            //获取accessToken
+            string accessTokenObj = DbOperator.GetAccessToken("", "");
+            JObject jsonsp = (JObject)JsonConvert.DeserializeObject(accessTokenObj);
+            responseYinhaiObject.acssToken = jsonsp["access_token"].ToString();
+            //*********************************************************************************************************************
+            //--- 参数生成完毕，玩银海订单表插入数据
+            string createResult = DbOperator.createYinHaiOrder(main_order_id, yinhaiCreateOrderObject.ord_sumamt,JsonConvert.SerializeObject(responseYinhaiObject));
+            JObject createResultObj = (JObject)JsonConvert.DeserializeObject(createResult);
+            if ((int)createResultObj["flag"] == -99)
+            {
+                responseYinhaiObject.flag = -99;
+                responseYinhaiObject.sm = (string)createResultObj["sm"];
+            }
+            //*************
+
+
+
+            return responseYinhaiObject;
+        }
+
+        //验证银海签名
+        public bool VerifySignature(string timestamp, string signData, string transSerial, string transOutput)
+        {
+            try
+            {
+                // 拼接相关参数生成待签名数据
+                string dataToSign = jrxtbm + jrxtsqm + timestamp + transSerial + transOutput;
+
+                // 使用 MD5 算法加密待签名数据
+                using (MD5 md5 = MD5.Create())
+                {
+                    byte[] inputBytes = Encoding.UTF8.GetBytes(dataToSign);
+                    byte[] hashBytes = md5.ComputeHash(inputBytes);
+
+                    // 将 MD5 哈希结果转换为字符串
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < hashBytes.Length; i++)
+                    {
+                        sb.Append(hashBytes[i].ToString("x2"));
+                    }
+
+                    // 将生成的签名数据与传入的签名数据进行比对
+                    return string.Equals(sb.ToString(), signData, StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            catch (Exception ex)
+            {
+                // 验签出现异常，验签失败
+                return false;
+            }
+        }
+
+        //根据银海方规则生成银海签名
+        //transSerial 流水号  transInput  输入报文
+        public string GenerateSignature(string timestamp,string transSerial, string transInput)
+        {
+            try
+            {
+                
+
+                // 拼接相关参数生成待签名数据
+                string dataToSign = yyjgbm + jrxtbm + jrxtsqm + timestamp + transSerial + transInput;
+
+                // 使用 MD5 算法加密待签名数据
+                using (MD5 md5 = MD5.Create())
+                {
+                    byte[] inputBytes = Encoding.UTF8.GetBytes(dataToSign);
+                    byte[] hashBytes = md5.ComputeHash(inputBytes);
+
+                    // 将 MD5 哈希结果转换为字符串
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < hashBytes.Length; i++)
+                    {
+                        sb.Append(hashBytes[i].ToString("x2"));
+                    }
+
+                    return sb.ToString();
+                }
+            }
+            catch (Exception ex)
+            {
+                // 处理签名生成错误
+                return null;
+            }
+        }
+
+        public string GetPublicKey()
+        {
+            using (RSACryptoServiceProvider rsaProvider = new RSACryptoServiceProvider(keySize))
+            {
+                return rsaProvider.ToXmlString(false);
+            }
+        }
+
+
+        //content加密内容 publicKey 公钥
+        public string Encrypt(string content)
+        {
+            try
+            {
+                byte[] dataToEncrypt = Encoding.UTF8.GetBytes(content);
+                using (RSACryptoServiceProvider rsaProvider = new RSACryptoServiceProvider(keySize))
+                {
+                    rsaProvider.FromXmlString(publicKey);
+                    int maxLength = (keySize / 8) - 11; // 去除校验位后117字节有效内容
+
+                    // 没有超过117字节则直接返回加密内容
+                    if (dataToEncrypt.Length <= maxLength)
+                    {
+                        byte[] encryptedData = rsaProvider.Encrypt(dataToEncrypt, false);
+                        return Convert.ToBase64String(encryptedData);
+                    }
+                    else
+                    {
+                        List<byte> encryptedDataList = new List<byte>();
+                        int index = 0;
+
+                        // 嵌套加密
+                        while (index < dataToEncrypt.Length)
+                        {
+                            int remainingBytes = dataToEncrypt.Length - index;
+                            int bytesToCopy = Math.Min(remainingBytes, maxLength);
+
+                            byte[] chunk = new byte[bytesToCopy];
+                            Array.Copy(dataToEncrypt, index, chunk, 0, bytesToCopy);
+
+                            byte[] encryptedChunk = rsaProvider.Encrypt(chunk, false);
+                            encryptedDataList.AddRange(encryptedChunk);
+
+                            index += bytesToCopy;
+                        }
+
+                        return Convert.ToBase64String(encryptedDataList.ToArray());
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // 处理加密错误
+                return null;
+            }
+        }
+
+        //content解密内容 privateKey 私钥
+        public string Decrypt(string content)
+        {
+            try
+            {
+                byte[] encryptedData = Convert.FromBase64String(content);
+                using (RSACryptoServiceProvider rsaProvider = new RSACryptoServiceProvider(keySize))
+                {
+                    rsaProvider.FromXmlString(privateKey);
+                    int maxLength = (keySize / 8);
+
+                    if (encryptedData.Length <= maxLength)
+                    {
+                        byte[] decryptedData = rsaProvider.Decrypt(encryptedData, false);
+                        return Encoding.UTF8.GetString(decryptedData);
+                    }
+                    else
+                    {
+                        List<byte> decryptedDataList = new List<byte>();
+                        int index = 0;
+
+                        while (index < encryptedData.Length)
+                        {
+                            int remainingBytes = encryptedData.Length - index;
+                            int bytesToCopy = Math.Min(remainingBytes, maxLength);
+
+                            byte[] chunk = new byte[bytesToCopy];
+                            Array.Copy(encryptedData, index, chunk, 0, bytesToCopy);
+
+                            byte[] decryptedChunk = rsaProvider.Decrypt(chunk, false);
+                            decryptedDataList.AddRange(decryptedChunk);
+
+                            index += bytesToCopy;
+                        }
+
+                        return Encoding.UTF8.GetString(decryptedDataList.ToArray());
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // 处理解密错误
+                return null;
+            }
+        }
+
+
+
+        //发送http请求公共方法
+        //参数：url 请求的地址 method 请求的方法(GET 或者post，del等等) contentType 请求内容类型 ，reqData：请求体参数的json字符串
+        //返回：JObject对象
+        /*调用样例：
+                yinhaiTool yhtool = new yinhaiTool();
+                string url = "https://example.com/api/resource";
+                HttpMethod method = HttpMethod.Get; // 或者 HttpMethod.Post
+                string contentType = "application/json"; // 根据需要设置
+                string reqData = "{\"key\": \"value\"}"; // 请求体数据  不需要请求体数据的话直接传null
+                JObject response = await yhtool.SendHttpRequestAsync(url, method, contentType,reqData);
+
+                // 处理响应数据
+                string reqStatus = response["reqStatus"].ToString();
+                if (reqStatus == "成功")
+                {
+                    // 请求成功，处理响应数据
+                }
+                else
+                {
+                    string error = response["error"].ToString();
+                    // 处理请求失败情况
+                }
+         */
+        public async Task<JObject> SendHttpRequestAsync(string url, HttpMethod method, string contentType, string reqData)
+        {
+            try
+            {
+                using (HttpClient client = new HttpClient())
+                {
+                    // 设置请求的方法
+                    HttpRequestMessage request = new HttpRequestMessage(method, url);
+
+                    // 设置请求头
+                    if (!string.IsNullOrEmpty(contentType))
+                    {
+                        request.Headers.Add("Accept", contentType);
+                    }
+
+                    // 设置请求体数据
+                    if (!string.IsNullOrEmpty(reqData))
+                    {
+                        request.Content = new StringContent(reqData, Encoding.UTF8, contentType);
+                    }
+
+                    // 发送请求并获取响应
+                    HttpResponseMessage response = await client.SendAsync(request);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string responseContent = await response.Content.ReadAsStringAsync();
+                        JObject responseData = JObject.Parse(responseContent);
+                        responseData["reqStatus"] = "成功";
+                        return responseData;
+                    }
+                    else
+                    {
+                        JObject errorResponse = new JObject
+                    {
+                        { "reqStatus", "失败" },
+                        { "error", "HTTP请求失败" }
+                    };
+                        return errorResponse;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // 捕获异常，返回包含错误信息的 JObject
+                JObject errorResponse = new JObject
+            {
+                { "reqStatus", "失败" },
+                { "error", ex.Message }
+            };
+                return errorResponse;
+            }
+        }
+
+
+
+
+    }
+}

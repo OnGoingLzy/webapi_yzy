@@ -1,0 +1,32 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+
+namespace webapi_yzy
+{
+    public class ResultMessage
+    {
+        public int code { get; set; }
+        public string msg { get; set; }
+        public object data { get; set; }
+    }
+
+    public class ResultMessagePush {
+        public string code {
+            get; set;
+        }
+        public bool succ {
+            get; set;
+        }
+    }
+
+    //泛型结果对象
+    public class GenericsResultMessage<T>
+    {
+        public int code { get; set; }
+        public string msg { get; set; }
+        public T data { get; set; }
+    }
+
+}

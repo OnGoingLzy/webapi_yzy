@@ -1,0 +1,687 @@
+﻿using Microsoft.AspNetCore.Mvc;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using webapi_yzy.Service;
+
+namespace webapi_yzy.Controllers
+{
+    [Route("api/[controller]/[action]")]
+    [ApiController]
+    public class UserController : Controller
+    {
+        public ResultMessage getTokenResult(string body, string appid, string method)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回值
+            ResultMessage resultmsg = new ResultMessage();
+            string timestamp = "";
+            string nonce = "";
+            string sign = "";
+            string inputstr = "";
+            try
+            {
+                //获取头部信息
+                timestamp = HttpContext.Request.Headers["X-Ca-Timestamp"];//时间戳
+                nonce = HttpContext.Request.Headers["X-Ca-Nonce"];//随机数
+                sign = HttpContext.Request.Headers["X-Ca-Signature"]; //签名
+
+                //身份验证
+                resultmsg = Token.getTokenResult(appid, method, timestamp, nonce, sign, body);
+
+                if (resultmsg.code != 99)//验证失败记录日志
+                {
+                    inputstr = "appid:" + appid + "&method:" + method + "&timestamp:" + timestamp + "&nonce:" + nonce + "&sign:" + sign;
+
+                    DbOperator.saveWebapiOutputLog(appid, method, "身份验证", inputstr, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                }
+                return resultmsg;
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { code = -1, msg = "exception:" + ex.Message };
+                //执行失败记录日志
+                DbOperator.saveWebapiOutputLog(appid, method, "身份验证", inputstr, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                return resultmsg;
+
+            }
+        }
+        //检查用户是否存在，不存在则新建用户
+        public ActionResult checkUserExist(object obj)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try
+            {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //查询商品内容
+                // "Body" 字段解析为一个 JObject 对象
+                JObject bodyObject = JObject.Parse(trueBody);
+
+                string openid = bodyObject["openid"] == null ? "" : bodyObject["openid"].ToString(); //openid
+
+                string dbRes = DbOperator.CheckUserExist(openid);
+
+
+                object dataObj = JSON.Decode(dbRes);
+                resultmsg.data = dataObj;
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "校验用户是否存在", body, (resultmsg.data ?? "").ToString(), resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                return new JsonResult(resultmsg);
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = -99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+
+        public ActionResult getUserPhoneNumber(object obj)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try
+            {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //查询商品内容
+                // "Body" 字段解析为一个 JObject 对象
+                JObject bodyObject = JObject.Parse(trueBody);
+
+                string openid = bodyObject["openid"] == null ? "" : bodyObject["openid"].ToString(); //
+                string secret = bodyObject["secret"] == null ? "" : bodyObject["secret"].ToString(); //
+                string code = bodyObject["code"] == null ? "" : bodyObject["code"].ToString(); //
+                //获取手机号前，先要获取token
+                string dbRes = DbOperator.GetAccessToken(appid, secret);
+                JObject jsonsp = (JObject)JsonConvert.DeserializeObject(dbRes);
+
+                //用token和code获取手机号
+                string getPhoneResult = DbOperator.GetPhoneNumber(code, jsonsp["access_token"].ToString());
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "微信接口获取手机号结果", body, getPhoneResult, resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                JObject jobj = JObject.Parse(getPhoneResult);
+                string phone = (string)jobj["data"]["phone_info"]["phoneNumber"];
+                string dbRes2 = DbOperator.bindUserPhone(openid,phone);
+
+
+                object dataObj = JSON.Decode(dbRes2);
+                resultmsg.data = dataObj;
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "处理用户手机号", body, (resultmsg.data ?? "").ToString(), resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                return new JsonResult(resultmsg);
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = -99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+
+
+        //获取用药人(商品使用者)
+        public ActionResult getGoodsUser(object obj)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try
+            {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //查询商品内容
+                // "Body" 字段解析为一个 JObject 对象
+                JObject bodyObject = JObject.Parse(trueBody);
+
+                string phoneNumber = bodyObject["phone"] == null ? "" : bodyObject["phone"].ToString(); //
+                string openid = bodyObject["openid"] == null ? "" : bodyObject["openid"].ToString(); //
+
+                string dbRes = DbOperator.getGoodsUser(openid,phoneNumber);
+
+
+                object dataObj = JSON.Decode(dbRes);
+                resultmsg.data = dataObj;
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "获取用药人", body, (resultmsg.data ?? "").ToString(), resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                return new JsonResult(resultmsg);
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = -99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+
+
+        public ActionResult delGoodsUser(object obj)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try
+            {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //查询商品内容
+                // "Body" 字段解析为一个 JObject 对象
+                JObject bodyObject = JObject.Parse(trueBody);
+
+                string id = bodyObject["id"] == null ? "" : bodyObject["id"].ToString(); //
+                string openid = bodyObject["openid"] == null ? "" : bodyObject["openid"].ToString(); //
+
+                string dbRes = DbOperator.delGoodsUser( id, openid);
+
+
+                object dataObj = JSON.Decode(dbRes);
+                resultmsg.data = dataObj;
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "删除用药人", body, (resultmsg.data ?? "").ToString(), resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                return new JsonResult(resultmsg);
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = -99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+
+        public ActionResult addGoodsUser(object obj)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try
+            {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //查询商品内容
+                // "Body" 字段解析为一个 JObject 对象
+                JObject bodyObject = JObject.Parse(trueBody);
+
+                string phone = bodyObject["goodsUserInfo"]["phone"] == null ? "" : bodyObject["goodsUserInfo"]["phone"].ToString(); //
+                string openid = bodyObject["goodsUserInfo"]["openid"] == null ? "" : bodyObject["goodsUserInfo"]["openid"].ToString(); //
+                string sex = bodyObject["goodsUserInfo"]["sex"] == null ? "" : bodyObject["goodsUserInfo"]["sex"].ToString(); //
+                string idCard = bodyObject["goodsUserInfo"]["idCard"] == null ? "" : bodyObject["goodsUserInfo"]["idCard"].ToString(); //
+                string relationship = bodyObject["goodsUserInfo"]["relationship"] == null ? "" : bodyObject["goodsUserInfo"]["relationship"].ToString(); //
+                string birthday = bodyObject["goodsUserInfo"]["birthday"] == null ? "" : bodyObject["goodsUserInfo"]["birthday"].ToString(); //
+                string goodsUserName = bodyObject["goodsUserInfo"]["goodsUserName"] == null ? "" : bodyObject["goodsUserInfo"]["goodsUserName"].ToString(); //
+
+
+                IdVerifyService service = new IdVerifyService();
+                string verifyResult = service.PostALiIdVerifyService(idCard, goodsUserName, "");
+
+                if (verifyResult.Equals("验证成功!"))
+                {
+                    string dbRes = DbOperator.addGoodsUser(openid, phone, sex, idCard, relationship, birthday, goodsUserName);
+                    object dataObj = JSON.Decode(dbRes);
+                    resultmsg.data = dataObj;
+                    resultmsg.code = 99;
+                }
+                else
+                {
+                    resultmsg.code = -99;
+                    resultmsg.msg = "错误的身份证信息";
+                    resultmsg.data = "验证不通过!";
+                }
+
+
+                return new JsonResult(resultmsg);
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = -99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+
+        public ActionResult getShareCode(object obj)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try
+            {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //查询商品内容
+                // "Body" 字段解析为一个 JObject 对象
+                JObject bodyObject = JObject.Parse(trueBody);
+
+                string phone = bodyObject["phone"] == null ? "" : bodyObject["phone"].ToString(); //
+
+                string spres = DbOperator.GetAccessToken(appid, "");
+                JObject jsonsp = (JObject)JsonConvert.DeserializeObject(spres);
+                //用token和code分享码
+                string spres_QRCode = DbOperator.getShareQRCode(phone, jsonsp["access_token"].ToString());
+
+                JObject jsonsp_QRCode = (JObject)JsonConvert.DeserializeObject(spres_QRCode);
+
+                resultmsg.msg = jsonsp_QRCode["sm"].ToString();
+                resultmsg.data = jsonsp_QRCode["data"].ToString();
+
+
+                return new JsonResult(resultmsg);
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = -99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+
+        public ActionResult getAddressList(object obj)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try
+            {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //查询收货地址内容
+                // "Body" 字段解析为一个 JObject 对象
+                JObject bodyObject = JObject.Parse(trueBody);
+
+                string openid = bodyObject["openid"] == null ? "" : bodyObject["openid"].ToString(); //
+
+                string dbRes = DbOperator.getAddressList(openid);
+
+
+                object dataObj = JSON.Decode(dbRes);
+                resultmsg.data = dataObj;
+
+
+                return new JsonResult(resultmsg);
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = 99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+        //新增地址
+        public ActionResult addAddress(object obj)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try
+            {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //新增地址内容 
+                // "Body" 字段解析为一个 JObject 对象 
+                JObject bodyObject = JObject.Parse(trueBody);
+                string name = bodyObject["pathObj"]["name"] == null ? "" : bodyObject["pathObj"]["name"].ToString(); //
+                string phone = bodyObject["pathObj"]["tel"] == null ? "" : bodyObject["pathObj"]["tel"].ToString(); //
+                string city = bodyObject["pathObj"]["city"] == null ? "" : bodyObject["pathObj"]["city"].ToString(); //
+                string openid = bodyObject["pathObj"]["openid"] == null ? "" : bodyObject["pathObj"]["openid"].ToString(); //
+                string isDefault = bodyObject["pathObj"]["isDefault"] == null ? "" : bodyObject["pathObj"]["isDefault"].ToString(); //
+                string detailAddress = bodyObject["pathObj"]["details"] == null ? "" : bodyObject["pathObj"]["details"].ToString(); //        
+
+                string dbRes = DbOperator.addAddress(name, phone, city, openid, int.Parse(isDefault), detailAddress);
+                object dataObj = JSON.Decode(dbRes);
+                resultmsg.data = dataObj;
+                resultmsg.code = 99;
+
+
+
+                return new JsonResult(resultmsg);
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = -99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+        //新增地址
+        public ActionResult updateAddress(object obj)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try
+            {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //新增地址内容 
+                // "Body" 字段解析为一个 JObject 对象 
+                JObject bodyObject = JObject.Parse(trueBody);
+                string id = bodyObject["pathObj"]["id"] == null ? "" : bodyObject["pathObj"]["id"].ToString(); //
+                string name = bodyObject["pathObj"]["name"] == null ? "" : bodyObject["pathObj"]["name"].ToString(); //
+                string phone = bodyObject["pathObj"]["tel"] == null ? "" : bodyObject["pathObj"]["tel"].ToString(); //
+                string city = bodyObject["pathObj"]["city"] == null ? "" : bodyObject["pathObj"]["city"].ToString(); //
+                string userId = bodyObject["pathObj"]["userId"] == null ? "" : bodyObject["pathObj"]["userId"].ToString(); //
+                string isDefault = bodyObject["pathObj"]["isDefault"] == null ? "" : bodyObject["pathObj"]["isDefault"].ToString(); //
+                string detailAddress = bodyObject["pathObj"]["details"] == null ? "" : bodyObject["pathObj"]["details"].ToString(); //        
+
+                string dbRes = DbOperator.updateAddress(int.Parse(id), name, phone, city, userId, int.Parse(isDefault), detailAddress);
+                object dataObj = JSON.Decode(dbRes);
+                resultmsg.data = dataObj;
+                resultmsg.code = 99;
+
+
+
+                return new JsonResult(resultmsg);
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = -99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+        //获取收货地址
+        public ActionResult deleteAddress(object obj)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            //返回结果
+            ResultMessage resultmsg = new ResultMessage();
+            //头部信息
+            string method = "";
+            string appid = "";
+
+            string body = "";
+            try
+            {
+                //取头部信息
+                method = HttpContext.Request.Headers["X-Service-Method"];//方法名称 
+                appid = HttpContext.Request.Headers["X-Ca-Key"];//appid
+                //取body
+                body = obj.ToString();
+                JObject reqObj = (JObject)JsonConvert.DeserializeObject(body);
+                string trueBody = reqObj["Body"].ToString();
+                /*
+                 obj中的Body才是真实的body
+                 */
+
+
+                //身份验证
+                resultmsg = getTokenResult(trueBody, appid, method);
+                //身份验证失败
+                if (resultmsg.code != 99)
+                {
+                    DbOperator.saveWebapiOutputLog(appid, method, "数据处理", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    return new JsonResult(resultmsg);
+                }
+
+                //身份验证成功，开始处理数据#################################
+                //查询收货地址内容
+                // "Body" 字段解析为一个 JObject 对象
+                JObject bodyObject = JObject.Parse(trueBody);
+
+                string userId = bodyObject["userId"] == null ? "" : bodyObject["userId"].ToString(); //
+                string id = bodyObject["id"] == null ? "" : bodyObject["id"].ToString(); //
+                string dbRes = DbOperator.deleteAddress(userId, int.Parse(id));
+
+
+                object dataObj = JSON.Decode(dbRes);
+                resultmsg.data = dataObj;
+
+
+                return new JsonResult(resultmsg);
+            }
+            catch (Exception ex)
+            {
+                resultmsg = new ResultMessage { msg = "exception:" + ex.Message, code = 99 };
+                //日志
+                DbOperator.saveWebapiOutputLog(appid, method, "数据处理Exception", body, "", resultmsg.code, resultmsg.msg, beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                return new JsonResult(resultmsg);
+            }
+        }
+
+
+    }
+}

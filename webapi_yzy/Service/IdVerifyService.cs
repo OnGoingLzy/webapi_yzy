@@ -1,0 +1,170 @@
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using webapi_yzy.Model;
+
+namespace webapi_yzy.Service
+{
+
+    //实名认证服务
+    public class IdVerifyService
+    {
+        private const String host = "https://zid.market.alicloudapi.com";
+        private const String path = "/idcheck/Post";
+        private const String method = "POST";
+        //private const String appcode = "0592b94e14d241a99c755b14a27dd552";
+        
+        private const String appcode = "4dd53dc97a3f435c833de93ec73c0169";
+        //获取药品信息
+        public string PostALiIdVerifyService(string cardNo, string realName, string appid)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            String querys = "";
+            String bodys = "cardNo=" + cardNo + "&realName=" + realName;
+            String url = host + path;
+            HttpWebRequest httpRequest = null;
+            HttpWebResponse httpResponse = null;
+
+            if (0 < querys.Length)
+            {
+                url = url + "?" + querys;
+            }
+
+            if (host.Contains("https://"))
+            {
+                ServicePointManager.ServerCertificateValidationCallback = new RemoteCertificateValidationCallback(CheckValidationResult);
+                httpRequest = (HttpWebRequest)WebRequest.CreateDefault(new Uri(url));
+            }
+            else
+            {
+                httpRequest = (HttpWebRequest)WebRequest.Create(url);
+            }
+            httpRequest.Method = method;
+            httpRequest.Headers.Add("Authorization", "APPCODE " + appcode);
+            //根据API的要求，定义相对应的Content-Type
+            httpRequest.ContentType = "application/x-www-form-urlencoded; charset=UTF-8";
+            if (0 < bodys.Length)
+            {
+                byte[] data = Encoding.UTF8.GetBytes(bodys);
+                using (Stream stream = httpRequest.GetRequestStream())
+                {
+                    stream.Write(data, 0, data.Length);
+                }
+            }
+            try
+            {
+                httpResponse = (HttpWebResponse)httpRequest.GetResponse();
+            }
+            catch (WebException ex)
+            {
+                httpResponse = (HttpWebResponse)ex.Response;
+            }
+
+            Stream st = httpResponse.GetResponseStream();
+            StreamReader reader = new StreamReader(st, Encoding.GetEncoding("utf-8"));
+            string result = reader.ReadToEnd();
+            //日志
+            DbOperator.saveWebapiOutputLog(appid, method, "实名认证结果", "身份证号:"+cardNo+";姓名:"+realName, result, 99, "", beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+            if (result.Contains("\"error_code\":0,"))
+            {
+                if (result.Contains("\"isok\":true,"))
+                {
+                    return "验证成功!";
+                }
+                else
+                {
+                    return "验证失败!";
+                }
+            }
+            else
+            {
+                return "验证失败!";
+            }
+
+
+
+        }
+        public static bool CheckValidationResult(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors errors)
+        {
+            return true;
+        }
+
+        //三要素
+        public string PostALiIdVerifyServiceByThreeElement(string cardNo, string realName, string appid,string phone)
+        {
+            string beginTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            String querys = "";
+            String bodys = "idCard=" + cardNo + "&realName=" + realName+"&mobile="+phone;
+            String url = "https://zpc.market.alicloudapi.com/efficient/cellphone/post";
+            HttpWebRequest httpRequest = null;
+            HttpWebResponse httpResponse = null;
+            String appcode2 = "0592b94e14d241a99c755b14a27dd552";
+            if (0 < querys.Length)
+            {
+                url = url + "?" + querys;
+            }
+
+            if (host.Contains("https://"))
+            {
+                ServicePointManager.ServerCertificateValidationCallback = new RemoteCertificateValidationCallback(CheckValidationResult);
+                httpRequest = (HttpWebRequest)WebRequest.CreateDefault(new Uri(url));
+            }
+            else
+            {
+                httpRequest = (HttpWebRequest)WebRequest.Create(url);
+            }
+            httpRequest.Method = method;
+            httpRequest.Headers.Add("Authorization", "APPCODE " + appcode2);
+            //根据API的要求，定义相对应的Content-Type
+            httpRequest.ContentType = "application/x-www-form-urlencoded; charset=UTF-8";
+            if (0 < bodys.Length)
+            {
+                byte[] data = Encoding.UTF8.GetBytes(bodys);
+                using (Stream stream = httpRequest.GetRequestStream())
+                {
+                    stream.Write(data, 0, data.Length);
+                }
+            }
+            try
+            {
+                httpResponse = (HttpWebResponse)httpRequest.GetResponse();
+            }
+            catch (WebException ex)
+            {
+                httpResponse = (HttpWebResponse)ex.Response;
+            }
+
+            Stream st = httpResponse.GetResponseStream();
+            StreamReader reader = new StreamReader(st, Encoding.GetEncoding("utf-8"));
+            string result = reader.ReadToEnd();
+            //日志
+            DbOperator.saveWebapiOutputLog(appid, method, "实名认证结果", "身份证号:" + cardNo + ";姓名:" + realName +";电话:"+phone, result, 99, "", beginTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+            if (result.Contains("\"error_code\":0"))
+            {
+                if (result.Contains("\"VerificationResult\":\"1\""))
+                {
+                    return "验证成功!";
+                }
+                else
+                {
+                    return "验证失败!";
+                }
+            }
+            else
+            {
+                return "验证失败!";
+            }
+
+
+
+        }
+
+
+    }
+}

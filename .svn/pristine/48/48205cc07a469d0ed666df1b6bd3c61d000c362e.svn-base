@@ -1,0 +1,199 @@
+﻿using Newtonsoft.Json.Linq;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Web;
+
+namespace webapi_yzy.Model
+{
+    public class pharmacyObj
+    {
+        public string code { get; set; }
+        public string msg { get; set; }
+        public List<pharmacy> list { get; set; }
+    }
+
+    public class pharmacy
+    {
+        public string pharmacyCode { get; set; }
+        public string pharmacyName { get; set; }
+        public string address { get; set; }
+        public string distance { get; set; }
+
+        public Position position;
+    }
+
+    //位置
+    public class Position
+    {
+        public string longitude { get; set; }
+        public string latitude { get; set; }
+    }
+
+    //商品查询结果
+    public class SearchSpResultObj
+    {
+        public string code { get; set; }
+        public string msg { get; set; }
+        public string datalist { get; set; }
+    }
+
+    //查询结果
+    public class BaseResultObj
+    {
+        public string code { get; set; }
+        public string msg { get; set; }
+    }
+    //客户是否能够退款
+    public class IsRefundObj
+    {
+        public string code { get; set; }
+        public string msg { get; set; }
+        public int isrefund { get; set; }
+        public string refundInfo { get; set; }
+    }
+    //回置已退款状态
+    public class TkxxObj
+    {
+        public string code { get; set; }
+        public string clzt { get; set; }
+        public string msg { get; set; }
+    }
+    //带data的结果
+    public class ResultObj
+    {
+        public string code { get; set; }
+        public string msg { get; set; }
+        public string data { get; set; }
+    }
+    //GetMdInfo结果
+    public class GetMdInfo_tencentResult
+    {
+        public string code { get; set; }
+        public string message { get; set; }
+        public object infoArray { get; set; }
+        public int total { get; set; }
+    }
+    //InsertOrder_tencent结果
+    public class InsertOrder_tencentResult
+    {
+        public string code { get; set; }
+        public string message { get; set; }
+        public string orgTradeNo { get; set; }
+    }
+
+
+    public class SearchSpmlResultObj
+    {
+        public string code { get; set; }
+        public string msg { get; set; }
+        public string dataList { get; set; }
+    }
+
+    //GetOrderState结果
+    public class GetOrderStateResult
+    {
+        public string code { get; set; }
+        public string message { get; set; }
+        public string status { get; set; }
+        //订单状态
+        //NOTAUTH 未授权
+        //NOTPAY 未支付
+        //PROCESSING 处理中
+        //ERPFAIL 药店系统处理错误
+        //PAYFAIL 支付失败
+        //CANCEL 已取消（撤销订单）
+        //NEEDCASH 现金待支付
+        //CLOSED 订单已关闭(超时关闭)
+        //SUCCESS 已完成（支付成功）
+        //REFUND 订单退款
+        public string medTransId { get; set; }//微信统一下单返回的订单号
+        public decimal totalFee { get; set; }//总金额(单位分)
+        public decimal cashFee { get; set; }//现金金额
+        public decimal cashReducedFee { get; set; }//现金优惠金额
+        public decimal insuranceFee { get; set; }//医保支付金额
+        public string errInfo { get; set; }//异常信息
+        public string insuranceDetail { get; set; }//医保返回结构体
+        public decimal insuranceSelfFee { get; set; }//医保个人账户支付金额(单位分)
+        public decimal insuranceFundFee { get; set; }//医保统筹基金支付金额（单位分）
+        public decimal insuranceOtherFee { get; set; } //医保其它支付金额（单位分）
+
+    }
+
+    //2023/5/9添加
+    public class drugsListObj
+    {
+        public String spcxm { get; set; }
+        public int pageIndex { get; set; }
+        public int pageSize { get; set; }
+        public List<Drugs> drugsList { get; set; }
+    }
+    public class apiDrugsListObj
+    {
+        public string result { get; set; }
+        public string msg { get; set; }
+        public List<Drugs> drugList { get; set; }
+    }
+    public class Drugs
+    {
+        public int no { get; set; }
+        public String spdm { get; set; }
+        public double similarity { get; set; }
+    }
+
+    //2023/5/12添加
+    public class IdVerifyObj
+    {
+        public string lxdh { get; set; }
+        public string realName { get; set; }
+        public string idCard { get; set; }
+        public string isOther { get; set; }
+
+        public string gx { get; set; }
+
+    }
+    public class IdVerifyResultObj
+    {
+        public string code { get; set; }
+        public string msg { get; set; }
+        public string result { get; set; }
+        public string sm { get; set; }
+    }
+
+    //购买的商品列表
+    public class purchaseGoods
+    {
+        public string goodsId { get; set; }
+
+        public int num { get; set; }
+
+        public string detail_order_id { get; set; }
+       
+    }
+
+    //退款参数对象
+    public class refundObj
+    {
+        public string wxpay_order_id{ get;set; } //原微信支付订单号
+        public string out_order_id { get; set; } //原商户支付订单号
+
+        public string reason { get; set; } //退款原因
+
+        public decimal refundAmount { get; set; } //退款金额 
+
+        public decimal origin_totalPrice { get; set; } //原订单总金额
+
+
+        // 以下若非指定退款某商品可不填
+        public string goodsId { get; set; } //商品id
+
+        public string goodsName { get; set; } //商品名
+
+        public decimal goodsPrice { get; set; } //商品单价 
+
+        public int refundNum { get; set; } //退货商品数量 只能是整型
+
+
+    }
+
+}
