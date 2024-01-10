@@ -52,6 +52,11 @@
               "target": "Package",
               "version": "[13.0.3, )"
             },
+            "Portable.BouncyCastle": {
+              "target": "Package",
+              "version": "[1.8.5.2, )",
+              "aliases": "MyBouncyCastle"
+            },
             "SKIT.FlurlHttpClient.Wechat.Api": {
               "target": "Package",
               "version": "[2.30.0, )"

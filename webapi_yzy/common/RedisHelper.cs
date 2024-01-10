@@ -6,10 +6,10 @@ using System.Threading.Tasks;
 namespace webapi_yzy
 {
     public class RedisHelper {
-        //正式
-        //private static readonly string redisConnectionString = "172.16.20.3:6379,password=yygs_2023";
+        ////正式
+        private static readonly string redisConnectionString = "172.16.20.3:6379,password=yygs_2023";
         //测试
-        private static readonly string redisConnectionString = "127.0.0.1:6379";
+       //private static readonly string redisConnectionString = "127.0.0.1:6379";
 
         private static readonly object _lock = new object();
         private static ConnectionMultiplexer _connection;

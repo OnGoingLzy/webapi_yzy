@@ -33,6 +33,7 @@
         "dependencies": {
           "AlipaySDKNet.Standard": "4.8.76",
           "Newtonsoft.Json": "13.0.3",
+          "Portable.BouncyCastle": "1.8.5.2",
           "SKIT.FlurlHttpClient.Wechat.Api": "2.30.0",
           "SKIT.FlurlHttpClient.Wechat.TenpayV3": "2.19.0",
           "StackExchange.Redis": "2.6.116",
